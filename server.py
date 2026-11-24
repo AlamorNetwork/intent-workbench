@@ -19,18 +19,19 @@ def utc(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
 def slug(s): return (re.sub(r'[^a-z0-9-]+','-',s.lower().strip()).strip('-') or 'project')[:55]
 def escape_md(s): return str(s or '').replace('\\','\\\\').replace('|','\\|')
 def safe_child(base, name, pattern):
-    """Validate one path component and confine resolved paths to a trusted directory.
+    """Resolve an allowlisted single path component inside a trusted root.
 
-    Rejects traversal, absolute paths and symlink escapes, including when a
-    persisted project.json is edited outside the UI.
+    Normalize the whole path *before* validating its final containment. Doing
+    so prevents traversal and symlink escapes, and makes the security boundary
+    visible to static analyzers rather than relying only on regex filtering.
     """
-    if not isinstance(name, str) or not re.fullmatch(pattern, name, flags=re.ASCII):
+    if not isinstance(name, str) or re.fullmatch(pattern, name, flags=re.ASCII) is None:
         raise ValueError('Invalid file path component')
-    root = base.resolve()
-    candidate = (root / name).resolve()
-    if candidate.parent != root:
+    root = os.path.realpath(os.fspath(base))
+    candidate = os.path.realpath(os.path.join(root, name))
+    if os.path.commonpath((root, candidate)) != root or os.path.dirname(candidate) != root:
         raise ValueError('Path escapes authorized directory')
-    return candidate
+    return Path(candidate)
 
 
 def project_dir(pid):
@@ -63,16 +64,16 @@ def safe_header_value(value):
     return value
 
 def read_project(pid):
-    file = project_dir(pid) / 'project.json'
+    file = safe_child(project_dir(pid), 'project.json', r'project\.json')
     if not file.is_file(): raise FileNotFoundError('Project not found')
     return json.loads(file.read_text('utf-8'))
 
 def save_project(p):
     p['updated_at']=utc()
     d=project_dir(p['id']);d.mkdir(parents=True,exist_ok=True)
-    tmp=d/'project.tmp'
+    tmp=safe_child(d, 'project.tmp', r'project\.tmp')
     tmp.write_text(json.dumps(p,ensure_ascii=False,indent=2),encoding='utf-8')
-    tmp.replace(d/'project.json')
+    tmp.replace(safe_child(d, 'project.json', r'project\.json'))
 
 REFERENCE_MODES = {'inspiration', 'structure', 'strict'}
 CATEGORIES = ['functional','ui','ux','technical','architecture','security','privacy','accessibility','performance','data','integration','testing','deployment','localization','media','storage','cryptography','authentication','compatibility','reliability','compliance','documentation','maintenance','other']
@@ -606,11 +607,13 @@ class Handler(BaseHTTPRequestHandler):
     def send(self,status,obj,content_type='application/json',headers=None):
         body=json.dumps(obj,ensure_ascii=False).encode('utf-8') if content_type=='application/json' else obj
         content_type = safe_header_value(content_type)
+        content_type = content_type.replace('\r', '').replace('\n', '')
         extra_headers = []
         for k,v in (headers or {}).items():
             if not isinstance(k,str) or not re.fullmatch(r'[A-Za-z0-9-]+',k,flags=re.ASCII):
                 raise ValueError('Invalid response header name')
-            extra_headers.append((k,safe_header_value(v)))
+            v = safe_header_value(v)
+            extra_headers.append((k,v.replace('\r', '').replace('\n', '')))
         self.send_response(status);self.send_header('Content-Type',content_type)
         self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
@@ -662,7 +665,8 @@ class Handler(BaseHTTPRequestHandler):
             if match:
                 p=read_project(match.group(1));fname=match.group(2)
                 if fname not in [r.get('filename') for r in p.get('references',[])]:raise FileNotFoundError('Image not in project')
-                f=upload_file(p['id'],fname)
+                f=existing_upload(p['id'], fname)
+                if f is None or not f.is_file(): raise FileNotFoundError('Image not in project')
                 return self.send(200,f.read_bytes(),mimetypes.guess_type(fname)[0] or 'application/octet-stream')
             if path=='/api/template':
                 return self.send(200,json.loads((ROOT/'template_v0.9.json').read_text('utf-8')))
