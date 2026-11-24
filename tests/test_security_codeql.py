@@ -59,3 +59,39 @@ class HeaderSecurityTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class AdditionalSecurityRegressionTests(unittest.TestCase):
+    def test_reject_symlinked_project_json_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            pid='a'*32
+            (root/'data'/pid).mkdir(parents=True)
+            (root/'outside.json').write_text('{"secret":true}')
+            (root/'data'/pid/'project.json').symlink_to(root/'outside.json')
+            with patch.object(server,'DATA',root/'data'):
+                with self.assertRaises(ValueError):
+                    server.read_project(pid)
+
+    def test_normal_project_file_roundtrip(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            (root/'data').mkdir()
+            with patch.object(server,'DATA',root/'data'):
+                p=server.default_project('Demo')
+                server.save_project(p)
+                result=server.read_project(p['id'])
+                self.assertEqual(result['title'],'Demo')
+
+    def test_valid_file_name_is_kept_under_uploads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            (root/'data').mkdir()
+            with patch.object(server,'DATA',root/'data'):
+                path=server.upload_file('a'*32,'b'*32+'.png')
+                self.assertEqual(path.parent.name,'uploads')
+                self.assertEqual(path.name,'b'*32+'.png')
+
+    def test_reject_non_string_header(self):
+        for bad in (None, b'foo', 42):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                server.safe_header_value(bad)
