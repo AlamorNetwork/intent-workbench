@@ -68,7 +68,7 @@ Most AI coding workflows mix requirements discovery, product design, architectur
 
 ```bash
 # Clone your repository once you publish it
-# git clone https://github.com/YOUR_USERNAME/intent-workbench.git
+# git clone https://github.com/AlamorNetwork/intent-workbench.git
 # cd intent-workbench
 
 python server.py
