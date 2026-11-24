@@ -1,0 +1,20 @@
+# Public beta release checklist
+
+## Before publishing
+- [ ] Copy README.md and assets/ into repository root; verify images display on GitHub.
+- [ ] Run `python -m unittest discover -s tests -v` on supported Windows and at least one other OS.
+- [ ] Test browser flows: create, edit, save, import JSON, attach image, export ZIP, reload, and restore project.
+- [ ] Test task board import roundtrip and selected Skill/Role installation in a temporary repository.
+- [ ] Verify the new release ZIP excludes temporary data, secrets, .env, caches, credentials, and private Velvet project artifacts.
+- [ ] Review local server security; confirm it binds to loopback by default and never expose it publicly without hardening.
+- [ ] Verify Python minimum version and startup instructions on a clean environment.
+- [ ] Replace the conceptual dashboard image with real screenshot(s) when available; update caption.
+- [ ] Choose and add a license; inspect licenses of all external catalogs, role text, images, and other bundled material.
+- [ ] Add CONTRIBUTING.md, SECURITY.md (disclosure channel), CHANGELOG.md, and an appropriate CODE_OF_CONDUCT.md as the project grows.
+- [ ] Publish as a beta tag before making stable v1.0 claims.
+
+## Release positioning
+- Tool, not a harness: no model invocation, runtime orchestration, or live token metering.
+- Project documents cannot override coding-agent system/developer policies.
+- 32 Python unit tests passed in one packaging environment, not a full cross-platform certification.
+- ~70% token reduction is an unverified user estimate, not a controlled benchmark.
