@@ -18,9 +18,49 @@ ALLOWED_MIME = {'image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp','ima
 def utc(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
 def slug(s): return (re.sub(r'[^a-z0-9-]+','-',s.lower().strip()).strip('-') or 'project')[:55]
 def escape_md(s): return str(s or '').replace('\\','\\\\').replace('|','\\|')
+def safe_child(base, name, pattern):
+    """Validate one path component and confine resolved paths to a trusted directory.
+
+    Rejects traversal, absolute paths and symlink escapes, including when a
+    persisted project.json is edited outside the UI.
+    """
+    if not isinstance(name, str) or not re.fullmatch(pattern, name, flags=re.ASCII):
+        raise ValueError('Invalid file path component')
+    root = base.resolve()
+    candidate = (root / name).resolve()
+    if candidate.parent != root:
+        raise ValueError('Path escapes authorized directory')
+    return candidate
+
+
 def project_dir(pid):
-    if not re.fullmatch(r'[a-f0-9]{32}', pid or ''): raise ValueError('Invalid project id')
-    return DATA / pid
+    return safe_child(DATA, pid, r'[a-f0-9]{32}')
+
+
+def upload_file(pid, filename):
+    project = project_dir(pid)
+    uploads = project / 'uploads'
+    if uploads.resolve().parent != project:
+        raise ValueError('Upload folder escapes project directory')
+    return safe_child(uploads, filename, r'[a-f0-9]{32}\.(?:png|jpg|webp|gif)')
+
+
+def existing_upload(pid, filename):
+    # Older projects may contain a legacy or invalid image name; treat it as
+    # unavailable rather than attempting to access an untrusted path.
+    if not filename:
+        return None
+    try:
+        return upload_file(pid, filename)
+    except ValueError:
+        return None
+
+
+def safe_header_value(value):
+    """Block HTTP response splitting through any caller-provided header."""
+    if not isinstance(value, str) or any(c in value for c in '\r\n\x00'):
+        raise ValueError('Invalid response header value')
+    return value
 
 def read_project(pid):
     file = project_dir(pid) / 'project.json'
@@ -280,7 +320,7 @@ def portable_contract(p,embed_images=False):
         item={k:v for k,v in r.items() if k!='filename'}
         item['image_status']='not_attached'
         filename=r.get('filename')
-        img=project_dir(p['id'])/'uploads'/filename if filename else None
+        img=existing_upload(p['id'],filename)
         if img and img.is_file():
             item['image_status']='attached'
             if embed_images:
@@ -324,7 +364,7 @@ def contract_audit(p):
     refs=p.get('references',[])
     for ref in refs:
         rid=ref.get('id','REF');mode=reference_mode(ref)
-        if ref.get('filename') and not (project_dir(p['id'])/'uploads'/ref['filename']).is_file():
+        if ref.get('filename') and not ((image_path := existing_upload(p['id'],ref['filename'])) and image_path.is_file()):
             add('ATTACHED_IMAGE_MISSING','warning',f'{rid}: نام فایل تصویر ثبت است اما فایل پیدا نشد.',rid)
         if not ref.get('filename') and ref.get('url'):
             add('REFERENCE_URL_ONLY','info',f'{rid}: لینک مرجع موجود است اما تصویر محلی ضمیمه نشده. برای مشاهده و Export آفلاین تصویر را آپلود کن.',rid)
@@ -458,9 +498,9 @@ acceptance_file: "ACCEPTANCE_TESTS.md"
     image_bytes={}
     for ref in refs:
         filename=ref.get('filename','')
-        local=project_dir(p['id'])/'uploads'/filename if filename else project_dir(p['id'])/'uploads'/'_missing_'
+        local=existing_upload(p['id'],filename)
         rid=ref.get('id','REF')
-        if local.is_file(): image_bytes[f'references/images/{filename}']=local.read_bytes()
+        if local is not None and local.is_file(): image_bytes[f'references/images/{filename}']=local.read_bytes()
         refdocs.append(f'''## {rid}: {ref.get('name') or filename}
 
 - Image file: `{('references/images/'+filename) if filename else 'NOT_ATTACHED'}`\n- URL: {ref.get('url') or 'Not provided'}\n- Availability: {ref.get('availability','not_specified')}
@@ -469,7 +509,7 @@ acceptance_file: "ACCEPTANCE_TESTS.md"
 - Allowed changes: {ref.get('modify') or '_Not specified_'}\n- Forbidden changes: {ref.get('forbidden') or '_Not specified_'}\n- Related requirements: {', '.join(ref.get('related_requirements',[])) or 'Not specified'}
 - Reference role: **{reference_mode(ref).upper()}** (INSPIRATION = non-binding style guidance; STRUCTURE = preserve listed structure; STRICT = preserve listed properties exactly).
 - Conflict resolution: Explicit user-approved requirements prevail over inspiration. For structure/strict discrepancies, raise an ambiguity before implementation; never silently invent a resolution.
-- Evidence status: {'Image attached' if local.is_file() else 'No image attached'}; no automated visual measurements implied.
+- Evidence status: {'Image attached' if local is not None and local.is_file() else 'No image attached'}; no automated visual measurements implied.
 ''')
     decisions=['# Decision Log','', 'Record the reason and scope of important decisions.','']
     for d in p.get('decisions',[]): decisions.append(f'- **{d.get("date", "")}** — {d.get("text", "")}')
@@ -565,10 +605,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt,*args): print(f'[{utc()}] {self.address_string()} {fmt%args}')
     def send(self,status,obj,content_type='application/json',headers=None):
         body=json.dumps(obj,ensure_ascii=False).encode('utf-8') if content_type=='application/json' else obj
+        content_type = safe_header_value(content_type)
+        extra_headers = []
+        for k,v in (headers or {}).items():
+            if not isinstance(k,str) or not re.fullmatch(r'[A-Za-z0-9-]+',k,flags=re.ASCII):
+                raise ValueError('Invalid response header name')
+            extra_headers.append((k,safe_header_value(v)))
         self.send_response(status);self.send_header('Content-Type',content_type)
         self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
-        for k,v in (headers or {}).items():self.send_header(k,v)
+        for k,v in extra_headers:self.send_header(k,v)
         self.end_headers();self.wfile.write(body)
     def body(self):
         n=int(self.headers.get('Content-Length','0'))
@@ -616,7 +662,7 @@ class Handler(BaseHTTPRequestHandler):
             if match:
                 p=read_project(match.group(1));fname=match.group(2)
                 if fname not in [r.get('filename') for r in p.get('references',[])]:raise FileNotFoundError('Image not in project')
-                f=project_dir(p['id'])/'uploads'/fname
+                f=upload_file(p['id'],fname)
                 return self.send(200,f.read_bytes(),mimetypes.guess_type(fname)[0] or 'application/octet-stream')
             if path=='/api/template':
                 return self.send(200,json.loads((ROOT/'template_v0.9.json').read_text('utf-8')))
@@ -733,8 +779,8 @@ def ai_conflict_audit(p):
     data['references']=[{k:r.get(k) for k in ('id','name','notes','preserve','modify','mode')} for r in p.get('references',[])[:3]]
     content=[{'type':'text','text':'Review possible conflicts, taking each reference role into account: '+json.dumps(data,ensure_ascii=False)}]
     for r in p.get('references',[])[:3]:
-        f=project_dir(p['id'])/'uploads'/r['filename']
-        if f.is_file():
+        f=existing_upload(p['id'],r.get('filename'))
+        if f is not None and f.is_file():
             mime=mimetypes.guess_type(str(f))[0] or 'image/png'
             content.append({'type':'text','text':'Reference '+str(r.get('id'))+'; role='+reference_mode(r)})
             content.append({'type':'image_url','image_url':{'url':f'data:{mime};base64,{base64.b64encode(f.read_bytes()).decode()}'}})
@@ -761,8 +807,8 @@ def ai_analyze(p):
     description=json.dumps({k:p.get(k) for k in ('title','summary','audience','goals','non_goals','technical','constraints','requirements','references')},ensure_ascii=False)
     content=[{'type':'text','text':'Analyze this project and propose a draft specification:\n'+description}]
     for ref in p.get('references',[])[:3]:
-        f=project_dir(p['id'])/'uploads'/ref['filename']
-        if f.is_file():
+        f=existing_upload(p['id'],ref.get('filename'))
+        if f is not None and f.is_file():
             mime=mimetypes.guess_type(str(f))[0] or 'image/png'
             content.append({'type':'image_url','image_url':{'url':f'data:{mime};base64,{base64.b64encode(f.read_bytes()).decode()}'}})
     payload=json.dumps({'model':model,'temperature':0.2,'messages':[{'role':'system','content':instruction},{'role':'user','content':content}]},ensure_ascii=False).encode()

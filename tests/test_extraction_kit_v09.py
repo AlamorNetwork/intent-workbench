@@ -16,15 +16,29 @@ class V09Tests(unittest.TestCase):
         p=s.import_contract(data)
         codes={i['code'] for i in s.contract_audit(p)['issues']}
         self.assertTrue({'NO_SKILLS_SELECTED','NO_ROLES_SELECTED','NO_USER_JOURNEYS','NO_SCREEN_SPEC'}<=codes)
-    def test_velvet_enriched_content_export(self):
-        d=json.loads(pathlib.Path('/mnt/data/Velvet_Intent_Complete_Draft_v0.9.json').read_text())
+    def test_enriched_content_export_portable(self):
+        # Synthetic fixture: this test must not depend on private Velvet files
+        # or on a machine-specific /mnt/data path.
+        d={
+            'schema_version':'1.6',
+            'project':{'title':'Portable fixture','summary':'Test export'},
+            'requirements':[{'id':'REQ-001','title':'UI','text':'Build UI','category':'ui','acceptance':'Visible screen'}],
+            'screens':[{'id':f'UI-{i:03d}','name':f'Screen {i}', 'purpose':'Test layout',
+                        'layout':'Main column','components':'Button','acceptance':'Visible'}
+                       for i in range(1,11)],
+            'journeys':[{'id':f'UAT-{i:03d}','name':f'Journey {i}', 'preconditions':'App running',
+                         'steps':'Open app','expected':'Screen visible', 'status':'not_run'}
+                        for i in range(1,7)],
+            'bank':{'roles':[dict(id=item['id'],name=item['name'],category=item['category'],
+                                   description=item['description'])
+                              for item in s.role_items()[:8]],'skills':[], 'documents':{}}
+        }
         p=s.import_contract(d)
         self.assertEqual(len(p['screens']),10)
         self.assertEqual(len(p['journeys']),6)
         self.assertEqual(len(p['bank']['roles']),8)
         self.assertTrue(all(j['status']=='not_run' for j in p['journeys']))
         z=zipfile.ZipFile(io.BytesIO(s.generate_package(p)))
-        self.assertIn('VISUAL_INTENT.md',z.namelist())
-        self.assertIn('USER_JOURNEYS.md',z.namelist())
-        self.assertIn('AGENT_ROLE_REGISTRY.md',z.namelist())
+        for name in ('VISUAL_INTENT.md','USER_JOURNEYS.md','AGENT_ROLE_REGISTRY.md'):
+            self.assertIn(name,z.namelist())
 if __name__=='__main__':unittest.main()
