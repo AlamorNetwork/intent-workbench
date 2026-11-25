@@ -26,3 +26,12 @@
 .bank-document button{margin-top:7px;margin-inline-end:7px}
 
 .image-missing{font-size:11px;color:#d6b48c;border:1px dashed #6b5944;padding:4px 7px;border-radius:6px;white-space:nowrap}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

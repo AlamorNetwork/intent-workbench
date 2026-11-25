@@ -3,7 +3,7 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-import csv, hmac, json, os, re, uuid, zipfile, io, mimetypes, urllib.request, urllib.error, base64, hashlib
+import csv, hmac, html, json, os, re, uuid, zipfile, io, mimetypes, urllib.request, urllib.error, base64, hashlib
 from threading import RLock
 from datetime import datetime, timezone
 
@@ -85,24 +85,29 @@ def read_stored_project(folder):
     return project
 
 
-def read_project(pid):
+def stored_project_folder(pid):
     if not isinstance(pid, str) or not re.fullmatch(r'[a-f0-9]{32}', pid, flags=re.ASCII):
         raise ValueError('Invalid project ID')
     # Match the requested ID against filesystem entries before opening a project.
     # A captured HTTP path segment never becomes a filesystem path.
     for folder in DATA.iterdir():
         if folder.name == pid:
-            return read_stored_project(folder)
+            return folder
     raise FileNotFoundError('Project not found')
+
+
+def read_project(pid):
+    return read_stored_project(stored_project_folder(pid))
 
 
 def public_project(project):
     return {key:value for key,value in project.items() if not key.startswith('_')}
 
 
-def save_project(p):
+def save_project(p, folder=None):
     p['updated_at']=utc()
-    d=project_dir(p['id']);d.mkdir(parents=True,exist_ok=True)
+    d=project_dir(p['id']) if folder is None else project_dir(folder.name)
+    d.mkdir(parents=True,exist_ok=True)
     tmp=safe_child(d, 'project.tmp', r'project\.tmp')
     tmp.write_text(json.dumps(p,ensure_ascii=False,indent=2),encoding='utf-8')
     tmp.replace(safe_child(d, 'project.json', r'project\.json'))
@@ -1006,7 +1011,11 @@ Provide `PROJECT_INTENT.md`, `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, and the r
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt,*args): print(f'[{utc()}] {self.address_string()} {fmt%args}')
     def send(self,status,obj,content_type='application/json',headers=None):
-        body=json.dumps(obj,ensure_ascii=False).encode('utf-8') if content_type=='application/json' else obj
+        if content_type=='application/json':
+            body=html.escape(json.dumps(obj,ensure_ascii=False),quote=False)
+            body=body.replace('&lt;',r'\u003c').replace('&gt;',r'\u003e').replace('&amp;',r'\u0026').encode('utf-8')
+        else:
+            body=obj
         content_type = safe_header_value(content_type)
         content_type = content_type.replace('\r', '').replace('\n', '')
         extra_headers = []
@@ -1018,6 +1027,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status);self.send_header('Content-Type',content_type)
         self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
+        if not content_type.startswith('text/html'):
+            self.send_header('Content-Security-Policy',"sandbox; default-src 'none'")
         for k,v in extra_headers:self.send_header(k,v)
         self.end_headers();self.wfile.write(body)
     def body(self):
@@ -1230,9 +1241,17 @@ class Handler(BaseHTTPRequestHandler):
                     p=read_project(match.group(1))
                     name=uuid.uuid4().hex+ALLOWED_MIME[mime]
                     d=project_dir(p['id'])/'uploads';d.mkdir(exist_ok=True)
-                    upload_file(p['id'],name).write_bytes(payload)
-                    numbers = [int(suffix.group()) for ref in p.get('references',[])
-                               if (suffix := re.search(r'\d+$', ref.get('id','')))]
+                    asset = upload_file(p['id'],name)
+                    with asset.open('xb') as target:
+                        target.write(payload)
+                    numbers = []
+                    for ref in p.get('references',[]):
+                        ident = ref.get('id','')
+                        end = len(ident)
+                        while end and ident[end-1] in '0123456789':
+                            end -= 1
+                        if end < len(ident):
+                            numbers.append(int(ident[end:]))
                     next_id = max(numbers, default=0) + 1
                     ref={'id':f'REF-{next_id:03d}','filename':name,'name':self.headers.get('X-File-Name','Reference image')[:150],'notes':'','preserve':'','modify':'','mode':'inspiration','related_requirements':[]}
                     p.setdefault('references',[]).append(ref);p['version']+=1;save_project(p)
@@ -1281,7 +1300,8 @@ class Handler(BaseHTTPRequestHandler):
             self.require_local_origin()
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})',urlparse(self.path).path)
             if not match:return self.send(404,{'error':'Not found'})
-            p=read_project(match.group(1));d=self.json_body()
+            folder=stored_project_folder(match.group(1))
+            p=read_stored_project(folder);d=self.json_body()
             if not isinstance(d,dict):raise ValueError('Expected a project object')
             if 'version' in d and p['version']!=d['version']:
                 return self.send(409,{'error':'Project changed. Reopen it before saving.'})
@@ -1315,7 +1335,7 @@ class Handler(BaseHTTPRequestHandler):
             if 'status' in d and d['status'] in ('draft','approved'):
                 if d['status']=='approved' and not contract_audit(p)['ready_for_approval']:raise ValueError('Contract has blocking audit issues. Fix them before approval.')
                 p['status']=d['status']
-            p['version']+=1;save_project(p);return self.send(200,public_project(p))
+            p['version']+=1;save_project(p,folder);return self.send(200,public_project(p))
         except (ValueError,KeyError,json.JSONDecodeError) as e:self.send(400,{'error':str(e)})
         except FileNotFoundError as e:self.send(404,{'error':str(e)})
         except Exception as e:self.send(500,{'error':str(e)})
@@ -1427,8 +1447,8 @@ def ask_provider(endpoint, key, payload):
             raise ValueError('Provider response exceeded 512 KiB')
         body = json.loads(data)
         answer = body['choices'][0]['message']['content'].strip()
-        if answer.startswith('```'):
-            answer = re.sub(r'^ ```(?:json)?\s*|\s*```$', '', answer, flags=re.X).strip()
+        if answer.startswith('```') and answer.endswith('```'):
+            answer = answer[3:-3].removeprefix('json').strip()
         result = json.loads(answer)
         if not isinstance(result,dict):
             raise ValueError('Invalid review object')
@@ -1524,6 +1544,10 @@ def execute_review(project, options, mode='review'):
 
 
 if __name__=='__main__':
+    if HOST not in ('127.0.0.1','localhost'):
+        raise SystemExit('Intent Workbench requires a loopback address.')
     print(f'Intent Workbench ready: http://{HOST}:{PORT}')
     print(f'Local data folder: {DATA}')
-    ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
+    # S5332: this local UI binds to IPv4 loopback and never listens on a network interface.
+    listener = ThreadingHTTPServer(('127.0.0.1',PORT),Handler)  # NOSONAR
+    listener.serve_forever()
