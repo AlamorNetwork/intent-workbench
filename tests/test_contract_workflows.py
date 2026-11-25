@@ -125,6 +125,79 @@ class ContractWorkflowTests(HTTPTestCase):
                 self.assertNotIn(symbol, body)
             self.assertEqual(title,json.loads(body)['title'])
 
+    def test_json_update_merges_saved_project_in_place(self):
+        self.fixture['requirements'][0]['policy'] = 'locked'
+        base = self.import_project()
+        before = self.request(base)
+        delta = {'schema_version':'1.6',
+                 'requirements':[{'id':'REQ-001','title':'Attempted locked change'},
+                                 {'id':'REQ-003','title':'New requirement','reference_ids':['REF-001']}],
+                 'tasks':[{'id':'TASK-001','description':'New instructions','requirement_ids':['REQ-003']}]}
+        options = {'contract':delta}
+        report = self.request(base + '/import-update/preview',options)
+        self.assertEqual([],report['errors'])
+        self.assertEqual(before,self.request(base))
+        self.assertEqual([],self.request(base+'/history'))
+        self.assertTrue(report['warnings'])
+        with self.assertRaises(HTTPError):
+            self.request(base+'/import-update',dict(options,digest=report['digest']))
+        updated = self.request(base+'/import-update',dict(options,digest=report['digest'],confirm=True))
+        self.assertEqual(before['id'],updated['id'])
+        self.assertEqual(before['version']+1,updated['version'])
+        self.assertEqual('draft',updated['status'])
+        self.assertEqual(['REQ-001','REQ-002','REQ-003'],[r['id'] for r in updated['requirements']])
+        self.assertEqual(before['requirements'][0]['title'],updated['requirements'][0]['title'])
+        self.assertEqual(['REQ-001','REQ-003'],updated['tasks'][0]['requirement_ids'])
+        self.assertEqual(['Update 2','Before update 2'],[row['label'] for row in self.request(base+'/history')])
+        self.assertEqual(1,len(self.request('/api/projects')))
+        install = self.request(base+'/install-manifest')
+        self.assertEqual(2,install['version'])
+        portable = next(file for file in install['files'] if file['path']=='PROJECT_CONTEXT.json')
+        manifest = json.loads(server.base64.b64decode(portable['data']))
+        self.assertEqual(3,len(manifest['requirements']))
+
+    def test_json_update_rejects_stale_preview_and_keeps_saved_images(self):
+        base = self.import_project()
+        new_image = self.request(base+'/references',IMAGE,headers={'Content-Type':'image/png'})
+        filename = new_image['references'][-1]['filename']
+        options={'contract':{'schema_version':'1.6','references':[{'id':'REF-002','notes':'Updated notes'}]}}
+        preview=self.request(base+'/import-update/preview',options)
+        self.request(base,{'summary':'Concurrent change'},method='PUT')
+        with self.assertRaises(HTTPError):
+            self.request(base+'/import-update',dict(options,digest=preview['digest'],confirm=True))
+        self.assertEqual([],self.request(base+'/history'))
+        report=self.request(base+'/import-update/preview',options)
+        updated=self.request(base+'/import-update',dict(options,digest=report['digest'],confirm=True))
+        self.assertEqual(filename,updated['references'][-1]['filename'])
+        self.assertEqual(IMAGE,self.request(base+'/images/'+filename))
+
+    def test_project_trash_preserves_contract_snapshots_and_uploads(self):
+        base = self.import_project()
+        other = self.request('/api/projects',{'title':'Keep this project'})
+        uploaded = self.request(base+'/references',IMAGE,headers={'Content-Type':'image/png'})
+        filename = uploaded['references'][-1]['filename']
+        self.request(base+'/history',{'label':'Preserved snapshot'})
+        with self.assertRaises(HTTPError):
+            self.request(base+'/trash',{'version':uploaded['version']})
+        with self.assertRaises(HTTPError) as stale:
+            self.request(base+'/trash',{'version':0,'confirm':True})
+        self.assertEqual(409,stale.exception.code)
+        self.assertEqual([],self.request('/api/trash'))
+        self.request(base+'/trash',{'version':uploaded['version'],'confirm':True})
+        self.assertEqual([other['id']],[row['id'] for row in self.request('/api/projects')])
+        entry,=self.request('/api/trash')
+        self.assertEqual(uploaded['id'],entry['id'])
+        for suffix in ('','/history','/images/'+filename):
+            with self.assertRaises(HTTPError) as missing:
+                self.request(base+suffix)
+            self.assertEqual(404,missing.exception.code)
+        self.assertTrue(server.upload_file(uploaded['id'],filename).is_file())
+        self.request(base+'/restore',{'deleted_at':entry['deleted_at'],'confirm':True})
+        self.assertEqual([],self.request('/api/trash'))
+        self.assertEqual(uploaded['version'],self.request(base)['version'])
+        self.assertEqual('Preserved snapshot',self.request(base+'/history')[0]['label'])
+        self.assertEqual(IMAGE,self.request(base+'/images/'+filename))
+
     def test_missing_snapshot_asset_and_stale_write(self):
         base = self.import_project()
         uploaded = self.request(base + '/references', IMAGE, headers={'Content-Type':'image/png'})

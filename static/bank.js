@@ -68,7 +68,7 @@
       const manifest=await api(`/api/projects/${active.id}/install-manifest`);
       if(manifest.status!=='approved'&&!confirm('قرارداد هنوز Draft است. نصب همین نسخه پیش‌نویس انجام شود؟'))return;
       if(manifest.files.length>200)throw Error('تعداد فایل‌ها زیاد است؛ از ZIP استفاده کن');
-      const timestamp=new Date().toISOString().replace(/[:.]/g,'-');
+      const timestamp=`update-v${manifest.version}-${new Date().toISOString().replace(/[:.]/g,'-')}`;
       let installed=0,backedUp=0;
       async function locate(root,parts){let cur=root;for(const part of parts)cur=await cur.getDirectoryHandle(part,{create:true});return cur}
       async function existingFile(dir,name){try{return await dir.getFileHandle(name,{create:false})}catch(e){if(e.name==='NotFoundError')return null;throw e}}

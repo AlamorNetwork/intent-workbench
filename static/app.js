@@ -26,9 +26,14 @@ function renderReqs(){if(!active)return;const count=active.requirements.length;$
   document.querySelectorAll('[data-req-file]').forEach(e=>e.onchange=async()=>{const index=Number(e.dataset.reqFile);await upload(e.files,index);e.value=''});
   document.querySelectorAll('[data-ref-link]').forEach(e=>e.onchange=()=>{gather();const card=e.closest('[data-req-index]');const r=active.requirements[Number(card.dataset.reqIndex)];const ref=e.dataset.refLink;const ids=effectiveRefIds(r);if(e.checked)ids.add(ref);else ids.delete(ref);r.reference_ids=[...ids];const source=active.references.find(x=>x.id===ref);if(source){const back=new Set(source.related_requirements||[]);if(e.checked)back.add(r.id);else back.delete(r.id);source.related_requirements=[...back]}markDirty();});
 }
-function addReq(){gather();const nums=active.requirements.map(r=>Number((r.id||'').match(/\d+$/)?.[0]||0));const id='REQ-'+String(Math.max(0,...nums)+1).padStart(3,'0');active.requirements.push({id,title:'',text:'',category:'functional',policy:'approval',source:'user',source_note:'',acceptance:'',priority:'medium',dependencies:[],phase:'',reference_ids:[]});openReq.add(id);$('req-search').value='';$('category-filter').value='';$('policy-filter').value='';markDirty();renderReqs();document.querySelector('[data-req-index="'+(active.requirements.length-1)+'"]')?.scrollIntoView({behavior:'smooth',block:'center'})}
+function numericSuffix(id=''){
+  let start=id.length;
+  while(start>0 && id[start-1]>='0' && id[start-1]<='9') start--;
+  return Number(id.slice(start));
+}
+function addReq(){gather();const nums=active.requirements.map(r=>numericSuffix(r.id||''));const id='REQ-'+String(Math.max(0,...nums)+1).padStart(3,'0');active.requirements.push({id,title:'',text:'',category:'functional',policy:'approval',source:'user',source_note:'',acceptance:'',priority:'medium',dependencies:[],phase:'',reference_ids:[]});openReq.add(id);$('req-search').value='';$('category-filter').value='';$('policy-filter').value='';markDirty();renderReqs();document.querySelector('[data-req-index="'+(active.requirements.length-1)+'"]')?.scrollIntoView({behavior:'smooth',block:'center'})}
 function renderRefs(){if(!active)return;$('ref-count').textContent=active.references.length;$('ref-list').innerHTML=active.references.map((r,i)=>`<article class="ref-card" data-ref-index="${i}"><div class="ref-head"><b>${esc(r.id)} — ${esc(r.name||'مرجع')}</b><button class="mini danger" data-delete-ref="${i}">حذف</button></div><div class="ref-body">${r.filename?`<div class="wide"><img class="ref-preview" src="/api/projects/${active.id}/images/${esc(r.filename)}" alt="مرجع تصویری"></div>`:`<div class="wide hint">⚠ فایل تصویر به این مرجع ضمیمه نشده${r.url?'؛ فقط آدرس آن ثبت شده است.':''}</div>`}<label>نام مرجع<input data-ffield="name" value="${esc(r.name)}"></label><label>نقش<select data-ffield="mode">${options(modes,r.mode||'inspiration')}</select></label><label class="wide">URL یا شناسه منبع<input data-ffield="url" value="${esc(r.url||'')}"></label><label class="wide">شرح منبع<textarea data-ffield="notes" rows="2">${esc(r.notes)}</textarea></label><label>ویژگی‌های قابل حفظ<textarea data-ffield="preserve" rows="3">${esc(r.preserve)}</textarea></label><label>تغییرات مجاز<textarea data-ffield="modify" rows="3">${esc(r.modify)}</textarea></label><label class="wide">تغییرات ممنوع<textarea data-ffield="forbidden" rows="2">${esc(r.forbidden||'')}</textarea></label><label>وضعیت دسترسی<input data-ffield="availability" value="${esc(r.availability||'mentioned_only')}"></label><label>نیازمندی‌های مرتبط<input data-ffield="related_requirements" value="${esc((r.related_requirements||[]).join(', '))}"></label></div></article>`).join('');document.querySelectorAll('[data-delete-ref]').forEach(b=>b.onclick=()=>{gather();active.references.splice(Number(b.dataset.deleteRef),1);markDirty();renderRefs()});document.querySelectorAll('[data-ffield]').forEach(e=>e.addEventListener('input',markDirty))}
-function addRef(){gather();const ids=active.references.map(r=>Number((r.id||'').match(/\d+$/)?.[0]||0)),id='REF-'+String(Math.max(0,...ids)+1).padStart(3,'0');active.references.push({id,name:'',filename:'',url:'',notes:'',preserve:'',modify:'',forbidden:'',related_requirements:[],availability:'mentioned_only',mode:'inspiration'});markDirty();renderRefs()}
+function addRef(){gather();const ids=active.references.map(r=>numericSuffix(r.id||'')),id='REF-'+String(Math.max(0,...ids)+1).padStart(3,'0');active.references.push({id,name:'',filename:'',url:'',notes:'',preserve:'',modify:'',forbidden:'',related_requirements:[],availability:'mentioned_only',mode:'inspiration'});markDirty();renderRefs()}
 async function upload(files,requirementIndex=null){if(!active)return;for(const file of files){if(file.size>12*1024*1024||!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)){toast('فرمت یا اندازه تصویر معتبر نیست');continue}try{if(dirty&&!(await save()))return;active=await api(`/api/projects/${active.id}/references`,{method:'POST',headers:{'Content-Type':file.type,'X-File-Name':file.name.replace(/[^\x20-\x7E]/g,'_')},body:file});if(requirementIndex!==null){const ref=active.references[active.references.length-1];const req=active.requirements[requirementIndex];if(req&&ref){req.reference_ids=[...new Set([...(req.reference_ids||[]),ref.id])];ref.related_requirements=[req.id];active=await api(`/api/projects/${active.id}`,json('PUT',active));dirty=false;openReq.add(req.id)}}markDirty();renderRefs();renderReqs();toast('تصویر و ارتباط نیازمندی ثبت شد')}catch(e){toast(e.message)}}}
 
 const screenLabels={name:'نام صفحه',purpose:'هدف صفحه',layout:'چیدمان و سلسله‌مراتب بصری',components:'کامپوننت‌های ضروری',interactions:'تعامل‌ها و ناوبری',states:'Loading / Empty / Error / Success',responsive:'رفتار در عرض‌های مختلف',tokens:'رنگ‌ها، تایپوگرافی و فاصله‌ها',acceptance:'معیار پذیرش قابل بررسی',related_requirements:'شناسه نیازمندی‌های مرتبط'};
@@ -65,7 +70,90 @@ function generateTasks(){if(!active)return;gather();if(!active.requirements.leng
 function renderReview(){if(!active)return;$('stat-req').textContent=active.requirements.length;$('stat-ref').textContent=active.references.length;$('stat-missing').textContent=active.requirements.filter(r=>!r.acceptance?.trim()).length}
 async function audit(){if(!active)return;if(dirty&&!(await save()))return;try{const r=await api(`/api/projects/${active.id}/audit`);$('audit-results').innerHTML=`<p>نتیجه: <b>${r.summary.blocker}</b> مانع · <b>${r.summary.warning}</b> هشدار · <b>${r.summary.info}</b> اطلاعیه</p>`+r.issues.map(x=>`<div class="audit-item ${esc(x.severity)}"><b>${esc(x.code)}</b>${esc(x.message)}<small>${esc(x.location)}</small></div>`).join('')+`<p class="hint">بررسی ساختاری؛ تشخیص تمام تعارض‌های معنایی یا تحلیل بصری تضمین نمی‌شود.</p>`}catch(e){toast(e.message)}}
 function aiAudit(){if(active) switchTab('ai-review');}
-function importDialog(){ $('import-dialog').showModal();$('import-feedback').textContent=''}
+let importUpdateId=null;
+function openContractImport(project=null){
+  importUpdateId=project?.id ?? null;
+  $('import-heading').textContent=project?'به‌روزرسانی این پروژه با JSON':'ساخت پروژهٔ جدید از JSON';
+  $('import-description').textContent=project
+    ? `پروژهٔ مقصد: ${project.title}. نسخهٔ قبلی در تاریخچه می‌ماند.`
+    : 'فایل JSON تولیدشده توسط مدل یا قالب استاندارد را وارد کن.';
+  $('import-feedback').textContent='';
+  $('import-file').value='';
+  $('import-text').value='';
+  $('import-dialog').showModal();
+}
+function importDialog(){ openContractImport(); }
+$('update-open-project').onclick=()=>{ if(active) openContractImport(active); };
+
+$('trash-open-project').onclick=async()=>{
+  if(!active) return;
+  if(dirty){ toast('پیش از حذف پروژه، تغییرات فعلی را ذخیره کنید.'); return; }
+  const {id,title,version}=active;
+  if(!confirm(`«${title}» به سطل زباله منتقل شود؟ می‌توانید آن را بازگردانید.`)) return;
+  const button=$('trash-open-project');
+  button.disabled=true;
+  try {
+    await api(`/api/projects/${id}/trash`,json('POST',{confirm:true,version}));
+    if(active?.id===id){
+      active=null;
+      dirty=false;
+      window.iwbOnProjectTrash?.();
+    }
+    await loadProjects();
+    toast('پروژه به سطل زباله منتقل شد.');
+  } catch(e) { toast(e.message); }
+  finally { button.disabled=false; }
+};
+
+async function renderProjectTrash(){
+  const status=$('trash-status'), list=$('trash-list');
+  status.textContent='در حال بارگیری…';
+  list.replaceChildren();
+  try {
+    const entries=await api('/api/trash');
+    status.textContent=entries.length?'':'سطل زباله خالی است.';
+    for(const entry of entries){
+      const row=document.createElement('li');
+      const title=document.createElement('bdi');
+      title.textContent=entry.title;
+      const restore=document.createElement('button');
+      restore.type='button';
+      restore.className='button secondary';
+      restore.textContent='بازگردانی';
+      restore.onclick=async()=>{
+        restore.disabled=true;
+        try {
+          await api(`/api/projects/${entry.id}/restore`,json('POST',{confirm:true,deleted_at:entry.deleted_at}));
+          await loadProjects();
+          await renderProjectTrash();
+          toast('پروژه بازگردانی شد.');
+        } catch(e) {
+          status.textContent=e.message;
+          restore.disabled=false;
+        }
+      };
+      row.append(title,' ',restore);
+      list.append(row);
+    }
+  } catch(e) { status.textContent=e.message; }
+}
+$('open-trash').onclick=()=>{
+  $('project-trash').showModal();
+  void renderProjectTrash();
+};
+function describeUpdate(preview){
+  const changes=preview.changes.map(change=>{
+    const before=change.before===undefined?'':JSON.stringify(change.before).slice(0,250);
+    const after=change.after===undefined?'':JSON.stringify(change.after).slice(0,250);
+    return `${change.path}  ${before}${before?' → ':''}${after}`;
+  });
+  return [
+    `${preview.title} · پیش‌نویس نسخهٔ ${preview.version}`,
+    ...changes,
+    ...preview.embedded_images.map(id=>`تصویر جاسازی‌شده: ${id}`),
+    ...preview.warnings
+  ].join('\n');
+}
 async function importJSON(){
   const button=$('do-import'), feedback=$('import-feedback');
   button.disabled=true;
@@ -74,6 +162,22 @@ async function importJSON(){
     if(!raw) throw Error('ابتدا فایل یا متن JSON را وارد کن.');
     if(raw.length>10_000_000) throw Error('فایل JSON بسیار بزرگ است.');
     const data=JSON.parse(raw);
+    if(importUpdateId){
+      const id=importUpdateId;
+      if(active?.id!==id || dirty) throw Error('پیش از به‌روزرسانی، پروژه را باز و تغییرات فعلی را ذخیره کنید.');
+      const url=`/api/projects/${id}/import-update`;
+      const preview=await api(url+'/preview',json('POST',{contract:data}));
+      if(preview.errors.length) throw Error([...preview.errors,...(preview.warnings||[])].join('\n'));
+      const summary=describeUpdate(preview);
+      feedback.textContent=summary;
+      if(!confirm('به‌روزرسانی به‌عنوان پیش‌نویس ثبت شود؟\n'+summary.slice(0,3000))) return;
+      if(active?.id!==id || dirty) throw Error('پروژه تغییر کرده است؛ دوباره پیش‌نمایش کنید.');
+      const updated=await api(url,json('POST',{contract:data,digest:preview.digest,confirm:true}));
+      $('import-dialog').close();
+      await openProject(updated.id);
+      toast(`پیش‌نویس نسخهٔ ${updated.version} ثبت شد. برای انتقال به پوشهٔ قبلی، «نصب در پوشه پروژه» را بزنید.`);
+      return;
+    }
     const preview=await api('/api/import/preview',json('POST',data));
     if(preview.errors.length) throw Error(preview.errors.join('\n'));
     feedback.textContent=JSON.stringify(preview,null,2);
@@ -95,5 +199,5 @@ $('copy-extraction').onclick=async()=>{
     toast('پرامپت کپی شد');
   } catch(e) { $('import-feedback').textContent=e.message; }
 };
-function bind(){ $('new').onclick=$('empty-new').onclick=create;$('import-launch').onclick=$('empty-import').onclick=$('open-json').onclick=importDialog;$('template').onclick=$('template-modal').onclick=template;$('extraction-kit').onclick=async()=>{try{const kit=await api('/api/extraction-kit');const blob=new Blob([JSON.stringify(kit,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='Intent_Workbench_AI_Extraction_Kit_v0.9.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('بسته مدل شامل قالب و بانک مهارت و نقش دانلود شد')}catch(e){toast(e.message)}};$('save').onclick=save;$('export').onclick=$('export-bottom').onclick=downloadContract;$('json-export').onclick=downloadJSON;$('add-req').onclick=addReq;$('add-screen').onclick=addScreen;$('add-journey').onclick=addJourney;$('add-task').onclick=addTask;$('auto-tasks').onclick=generateTasks;$('import-task-board').onclick=()=>$('task-board-file').click();$('task-board-file').onchange=async e=>{await importTaskBoard(e.target.files[0]);e.target.value=''};$('task-search').oninput=()=>{gather();renderTasks()};$('task-filter').onchange=()=>{gather();renderTasks()};$('add-ref').onclick=addRef;$('audit').onclick=audit;$('audit-ai').onclick=aiAudit;$('approved').onchange=markDirty;$('do-import').onclick=importJSON;$('import-file-tab').onclick=()=>{$('import-text').hidden=true;$('import-file').hidden=false};$('import-text-tab').onclick=()=>{$('import-file').hidden=true;$('import-text').hidden=false};for(const t of document.querySelectorAll('.tab'))t.onclick=()=>{gather();switchTab(t.dataset.tab)};for(const x of document.querySelectorAll('[data-field]'))x.addEventListener('input',markDirty);$('req-search').oninput=()=>{gather();renderReqs()};$('category-filter').onchange=$('policy-filter').onchange=()=>{gather();renderReqs()};$('file').onchange=e=>upload(e.target.files);$('drop').onclick=()=>$('file').click();$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('drag')};$('drop').ondragleave=()=>$('drop').classList.remove('drag');$('drop').ondrop=e=>{e.preventDefault();e.stopPropagation();$('drop').classList.remove('drag');upload(e.dataTransfer.files)};window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}})}
+function bind(){ $('new').onclick=$('empty-new').onclick=create;$('import-launch').onclick=$('empty-import').onclick=$('open-json').onclick=importDialog;$('template').onclick=$('template-modal').onclick=template;$('extraction-kit').onclick=async()=>{try{const kit=await api('/api/extraction-kit');const blob=new Blob([JSON.stringify(kit,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='Intent_Workbench_AI_Extraction_Kit_v0.9.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('بسته مدل شامل قالب و بانک مهارت و نقش دانلود شد')}catch(e){toast(e.message)}};$('save').onclick=save;$('export').onclick=$('export-bottom').onclick=downloadContract;$('json-export').onclick=downloadJSON;$('add-req').onclick=addReq;$('add-screen').onclick=addScreen;$('add-journey').onclick=addJourney;$('add-task').onclick=addTask;$('auto-tasks').onclick=generateTasks;$('import-task-board').onclick=()=>$('task-board-file').click();$('task-board-file').onchange=async e=>{await importTaskBoard(e.target.files[0]);e.target.value=''};$('task-search').oninput=()=>{gather();renderTasks()};$('task-filter').onchange=()=>{gather();renderTasks()};$('add-ref').onclick=addRef;$('audit').onclick=audit;$('audit-ai').onclick=aiAudit;$('approved').onchange=markDirty;$('do-import').onclick=importJSON;$('import-file-tab').onclick=()=>{$('import-text').hidden=true;$('import-file').hidden=false};$('import-text-tab').onclick=()=>{$('import-file').hidden=true;$('import-text').hidden=false};for(const t of document.querySelectorAll('.tab'))t.onclick=()=>{gather();switchTab(t.dataset.tab)};for(const x of document.querySelectorAll('[data-field]'))x.addEventListener('input',markDirty);$('req-search').oninput=()=>{gather();renderReqs()};$('category-filter').onchange=$('policy-filter').onchange=()=>{gather();renderReqs()};$('file').onchange=e=>upload(e.target.files);$('drop').onclick=()=>$('file').click();$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('drag')};$('drop').ondragleave=()=>$('drop').classList.remove('drag');$('drop').ondrop=e=>{e.preventDefault();e.stopPropagation();$('drop').classList.remove('drag');void upload(e.dataTransfer.files)};window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}})}
 (function(){for(const [k,v] of Object.entries(categories))$('category-filter').insertAdjacentHTML('beforeend',`<option value="${k}">${v}</option>`);bind();loadProjects().catch(e=>toast(e.message))})();

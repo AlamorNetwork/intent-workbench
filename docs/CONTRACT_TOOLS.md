@@ -14,6 +14,31 @@ contains project storage and any available referenced images. Keep it private
 and extract it into a separate standardized project directory when recovering
 a backup. Ordinary schema JSON and handoff ZIPs are the portable formats.
 
+## Update an existing contract with JSON
+
+Open the saved project and choose **Update this project with JSON** from the project overview. The sidebar **Import JSON** action always creates a new project.
+A Schema 1.0–1.6 file can contain a complete contract or only the sections to
+add or update. Use stable IDs and review the preview before confirming.
+
+Items with new IDs are added. For existing IDs, supplied nonempty fields
+update the draft and relationship lists are combined. Omitted items, stored
+test evidence, and protected requirement content are preserved. The prior
+contract and the imported draft both appear in History. Confirming a stale
+preview after another save is rejected.
+
+To update a previously installed folder, use **Install in project folder**
+and select the same folder. The browser asks for write access. Files that
+will be replaced are copied to `.intent-workbench-backups/update-v<version>-<time>/`.
+Other files in the folder remain in place.
+
+## Delete or restore a project
+
+From the open project's overview, select **Delete project** and confirm. The
+project is removed from the active list and appears under **Project Trash**
+in the sidebar. Use **Restore** there to return the same project to the active
+list. The contract, uploaded images, history, and files already installed in
+an external project folder are retained.
+
 ## Optional AI review
 
 Configure `IW_AI_MODEL`, `IW_AI_API_KEY`, and optionally `IW_AI_BASE_URL`

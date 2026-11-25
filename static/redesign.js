@@ -14,13 +14,14 @@ function refreshDashboard(){const pp=typeof projects==='undefined'?[]:projects;d
 nav.forEach(b=>b.addEventListener('click',()=>{let page=b.dataset.nav;if(page==='home'||page==='projects'){showHome();if(page==='projects')document.querySelector('.home-lower')?.scrollIntoView({behavior:'smooth',block:'start'});return;}showEditorTab(page)}));
 $$('[data-home-action]').forEach(b=>b.addEventListener('click',()=>{let a=b.dataset.homeAction;if(a==='new')document.getElementById('new').click();else if(a==='import')document.getElementById('import-launch').click();else if(a==='templates')document.getElementById('template').click();else document.querySelector('.home-lower')?.scrollIntoView({behavior:'smooth'})}));
 $$('[data-quick]').forEach(b=>b.addEventListener('click',()=>showEditorTab(b.dataset.quick)));
+window.iwbOnProjectTrash=showHome;
 window.iwbOnProjectOpen=()=>{home.hidden=true;header.hidden=false;editor.hidden=false;selectNav(currentTab);refreshDashboard();};
 const oldSwitch=window.switchTab;window.switchTab=function(tab){oldSwitch(tab);selectNav(tab);};
 // Existing listeners capture function declarations directly, so keep their behavior and reflect view state after clicks.
 $$('.tab').forEach(b=>b.addEventListener('click',()=>selectNav(b.dataset.tab)));
 const list=document.getElementById('project-list');
 new MutationObserver(refreshDashboard).observe(list,{childList:true});
-const search=document.getElementById('global-search');search.addEventListener('keydown',e=>{if(e.key==='Enter'){let q=search.value.trim().toLowerCase();if(!q)return;let item=(typeof projects==='undefined'?[]:projects).find(p=>p.title.toLowerCase().includes(q));if(item){openProject(item.id);return;}if(typeof active!=='undefined'&&active){showEditorTab('requirements');document.getElementById('req-search').value=search.value;renderReqs();}else window.toast?.('پروژه‌ای پیدا نشد.');}});
+const search=document.getElementById('global-search');search.addEventListener('keydown',e=>{if(e.key==='Enter'){let q=search.value.trim().toLowerCase();if(!q)return;let item=(typeof projects==='undefined'?[]:projects).find(p=>p.title.toLowerCase().includes(q));if(item){openProject(item.id).catch(e=>toast(e.message));return;}if(typeof active!=='undefined'&&active){showEditorTab('requirements');document.getElementById('req-search').value=search.value;renderReqs();}else window.toast?.('پروژه‌ای پیدا نشد.');}});
 document.getElementById('mobile-menu').onclick=()=>document.body.classList.toggle('sidebar-open');
 // Initial screen remains the dashboard, even for an empty workspace.
 home.hidden=false;header.hidden=true;empty.hidden=true;editor.hidden=true;selectNav('home');refreshDashboard();
