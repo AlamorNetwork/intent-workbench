@@ -41,7 +41,11 @@
     // Supports root arrays, {roles:[...]}, or 200-agent catalog with nested items.
     const arr=Array.isArray(data)?data:Array.isArray(data.roles)?data.roles:Array.isArray(data.agents)?data.agents:Array.isArray(data.items)?data.items:[];
     return arr.filter(x=>x&&typeof x==='object').slice(0,300).map(x=>{
-      const raw=String(x.id||x.slug||x.key||x.name||'').toLowerCase();const id=raw.replace(/[^a-z0-9-]/g,'-').replace(/^-+|-+$/g,'').slice(0,63);
+      const raw=String(x.id||x.slug||x.key||x.name||'').toLowerCase();const clean=raw.replace(/[^a-z0-9-]/g,'-');
+      let first=0,last=clean.length;
+      while(first<last && clean[first]==='-') first++;
+      while(last>first && clean[last-1]==='-') last--;
+      const id=clean.slice(first,Math.min(last,first+63));
       return {id,name:String(x.nameEn||x.name||x.title||id).slice(0,160),category:String(x.domain||x.category||'external').slice(0,80),description:String(x.descriptionEn||x.description||x.summary||x.role||'Imported specialist role').slice(0,1500),source:'imported-catalog'}
     }).filter(x=>validId(x.id));
   }
@@ -84,5 +88,5 @@
     }catch(e){if(e.name==='AbortError')return;toast('نصب متوقف شد: '+e.message)}
   }
   document.getElementById('install-project').onclick=installInProject;
-  fetchCatalog();
+  void fetchCatalog();
 })();

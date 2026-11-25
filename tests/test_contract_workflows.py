@@ -111,6 +111,20 @@ class ContractWorkflowTests(HTTPTestCase):
                 core.append(archive.read('PROJECT_CONTEXT.json'))
         self.assertEqual(1, len(set(core)))
 
+    def test_json_response_preserves_text_and_uses_safe_wire_encoding(self):
+        title = 'A < B & C > D'
+        payload = json.dumps({'title':title}).encode()
+        request = Request(self.origin + '/api/projects', data=payload,
+                          headers={'Content-Type':'application/json'})
+        with urlopen(request,timeout=5) as response:
+            body = response.read()
+            self.assertEqual('application/json', response.headers.get_content_type())
+            self.assertEqual('nosniff', response.headers['X-Content-Type-Options'])
+            self.assertIn('sandbox', response.headers['Content-Security-Policy'])
+            for symbol in (b'<', b'>', b'&'):
+                self.assertNotIn(symbol, body)
+            self.assertEqual(title,json.loads(body)['title'])
+
     def test_missing_snapshot_asset_and_stale_write(self):
         base = self.import_project()
         uploaded = self.request(base + '/references', IMAGE, headers={'Content-Type':'image/png'})

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- Harden JSON responses and file writes, and confine the local UI to IPv4 loopback.
+- Add missing form labels and simplify parsing in the model review and role catalog.
+- Install hash-pinned, wheel-only browser dependencies in CI.
+
 ## 1.0.0
 
 - GitHub-ready README, assets and public release checklist.

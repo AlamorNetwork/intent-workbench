@@ -20,7 +20,7 @@ Configure `IW_AI_MODEL`, `IW_AI_API_KEY`, and optionally `IW_AI_BASE_URL`
 in the environment that starts `python server.py`. Supply the provider's
 OpenAI-compatible API base URL (normally ending in /v1). Only HTTPS and an
 explicit loopback HTTP port are accepted. Keep the key in your local secret
-environment and keep Workbench on loopback. Requests use the configured
+environment. The Workbench HTTP listener binds to 127.0.0.1. Requests use the configured
 destination and redirects are disabled.
 
 Save the project, choose fields to redact, and review the exact contract
