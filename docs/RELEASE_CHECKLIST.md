@@ -14,7 +14,7 @@
 - [ ] Publish as a beta tag before making stable v1.0 claims.
 
 ## Release positioning
-- Tool, not a harness: no model invocation, runtime orchestration, or live token metering.
+- Workbench supports optional, consent-based contract review. Coding-agent execution and runtime management are outside its scope.
 - Project documents cannot override coding-agent system/developer policies.
-- 32 Python unit tests passed in one packaging environment, not a full cross-platform certification.
+- See the execution plan for tested environments and pending release checks.
 - ~70% token reduction is an unverified user estimate, not a controlled benchmark.
