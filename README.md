@@ -168,6 +168,10 @@ Minimal Schema 1.6 example. Add real entities from your evidence using the kit t
 {"schema_version":"1.6","project":{"title":"Example","summary":"","audience":"","goals":[],"non_goals":[],"technical":"","constraints":[]},"requirements":[],"references":[],"screens":[],"journeys":[],"tasks":[],"design_system":"","architecture":"","workflow":"","conflicts":"","notes":"","bank":{"skills":[],"roles":[],"documents":{}}}
 ```
 
+## Update or remove a project
+
+Open an existing project and use **Update this project with JSON** to preview and merge a new draft. Both versions are saved in History. The sidebar **Import JSON** action creates a new project. Use **Delete project** to move a project to **Project Trash**, where you can restore it with its images and history.
+
 ## Contract tools
 
 Use **Traceability** to find documentation gaps, **History** to compare or restore snapshots, and **Handoff Profiles** to preview a Codex, Claude Code, or generic ZIP. **Acceptance Evidence** imports and reports test results locally. **AI Review** is optional and requires a local provider configuration and consent on each preview.

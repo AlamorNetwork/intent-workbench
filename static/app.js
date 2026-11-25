@@ -65,7 +65,90 @@ function generateTasks(){if(!active)return;gather();if(!active.requirements.leng
 function renderReview(){if(!active)return;$('stat-req').textContent=active.requirements.length;$('stat-ref').textContent=active.references.length;$('stat-missing').textContent=active.requirements.filter(r=>!r.acceptance?.trim()).length}
 async function audit(){if(!active)return;if(dirty&&!(await save()))return;try{const r=await api(`/api/projects/${active.id}/audit`);$('audit-results').innerHTML=`<p>نتیجه: <b>${r.summary.blocker}</b> مانع · <b>${r.summary.warning}</b> هشدار · <b>${r.summary.info}</b> اطلاعیه</p>`+r.issues.map(x=>`<div class="audit-item ${esc(x.severity)}"><b>${esc(x.code)}</b>${esc(x.message)}<small>${esc(x.location)}</small></div>`).join('')+`<p class="hint">بررسی ساختاری؛ تشخیص تمام تعارض‌های معنایی یا تحلیل بصری تضمین نمی‌شود.</p>`}catch(e){toast(e.message)}}
 function aiAudit(){if(active) switchTab('ai-review');}
-function importDialog(){ $('import-dialog').showModal();$('import-feedback').textContent=''}
+let importUpdateId=null;
+function openContractImport(project=null){
+  importUpdateId=project?.id ?? null;
+  $('import-heading').textContent=project?'به‌روزرسانی این پروژه با JSON':'ساخت پروژهٔ جدید از JSON';
+  $('import-description').textContent=project
+    ? `پروژهٔ مقصد: ${project.title}. نسخهٔ قبلی در تاریخچه می‌ماند.`
+    : 'فایل JSON تولیدشده توسط مدل یا قالب استاندارد را وارد کن.';
+  $('import-feedback').textContent='';
+  $('import-file').value='';
+  $('import-text').value='';
+  $('import-dialog').showModal();
+}
+function importDialog(){ openContractImport(); }
+$('update-open-project').onclick=()=>{ if(active) openContractImport(active); };
+
+$('trash-open-project').onclick=async()=>{
+  if(!active) return;
+  if(dirty){ toast('پیش از حذف پروژه، تغییرات فعلی را ذخیره کنید.'); return; }
+  const {id,title,version}=active;
+  if(!confirm(`«${title}» به سطل زباله منتقل شود؟ می‌توانید آن را بازگردانید.`)) return;
+  const button=$('trash-open-project');
+  button.disabled=true;
+  try {
+    await api(`/api/projects/${id}/trash`,json('POST',{confirm:true,version}));
+    if(active?.id===id){
+      active=null;
+      dirty=false;
+      window.iwbOnProjectTrash?.();
+    }
+    await loadProjects();
+    toast('پروژه به سطل زباله منتقل شد.');
+  } catch(e) { toast(e.message); }
+  finally { button.disabled=false; }
+};
+
+async function renderProjectTrash(){
+  const status=$('trash-status'), list=$('trash-list');
+  status.textContent='در حال بارگیری…';
+  list.replaceChildren();
+  try {
+    const entries=await api('/api/trash');
+    status.textContent=entries.length?'':'سطل زباله خالی است.';
+    for(const entry of entries){
+      const row=document.createElement('li');
+      const title=document.createElement('bdi');
+      title.textContent=entry.title;
+      const restore=document.createElement('button');
+      restore.type='button';
+      restore.className='button secondary';
+      restore.textContent='بازگردانی';
+      restore.onclick=async()=>{
+        restore.disabled=true;
+        try {
+          await api(`/api/projects/${entry.id}/restore`,json('POST',{confirm:true,deleted_at:entry.deleted_at}));
+          await loadProjects();
+          await renderProjectTrash();
+          toast('پروژه بازگردانی شد.');
+        } catch(e) {
+          status.textContent=e.message;
+          restore.disabled=false;
+        }
+      };
+      row.append(title,' ',restore);
+      list.append(row);
+    }
+  } catch(e) { status.textContent=e.message; }
+}
+$('open-trash').onclick=()=>{
+  $('project-trash').showModal();
+  void renderProjectTrash();
+};
+function describeUpdate(preview){
+  const changes=preview.changes.map(change=>{
+    const before=change.before===undefined?'':JSON.stringify(change.before).slice(0,250);
+    const after=change.after===undefined?'':JSON.stringify(change.after).slice(0,250);
+    return `${change.path}  ${before}${before?' → ':''}${after}`;
+  });
+  return [
+    `${preview.title} · پیش‌نویس نسخهٔ ${preview.version}`,
+    ...changes,
+    ...preview.embedded_images.map(id=>`تصویر جاسازی‌شده: ${id}`),
+    ...preview.warnings
+  ].join('\n');
+}
 async function importJSON(){
   const button=$('do-import'), feedback=$('import-feedback');
   button.disabled=true;
@@ -74,6 +157,22 @@ async function importJSON(){
     if(!raw) throw Error('ابتدا فایل یا متن JSON را وارد کن.');
     if(raw.length>10_000_000) throw Error('فایل JSON بسیار بزرگ است.');
     const data=JSON.parse(raw);
+    if(importUpdateId){
+      const id=importUpdateId;
+      if(active?.id!==id || dirty) throw Error('پیش از به‌روزرسانی، پروژه را باز و تغییرات فعلی را ذخیره کنید.');
+      const url=`/api/projects/${id}/import-update`;
+      const preview=await api(url+'/preview',json('POST',{contract:data}));
+      if(preview.errors.length) throw Error([...preview.errors,...(preview.warnings||[])].join('\n'));
+      const summary=describeUpdate(preview);
+      feedback.textContent=summary;
+      if(!confirm('به‌روزرسانی به‌عنوان پیش‌نویس ثبت شود؟\n'+summary.slice(0,3000))) return;
+      if(active?.id!==id || dirty) throw Error('پروژه تغییر کرده است؛ دوباره پیش‌نمایش کنید.');
+      const updated=await api(url,json('POST',{contract:data,digest:preview.digest,confirm:true}));
+      $('import-dialog').close();
+      await openProject(updated.id);
+      toast(`پیش‌نویس نسخهٔ ${updated.version} ثبت شد. برای انتقال به پوشهٔ قبلی، «نصب در پوشه پروژه» را بزنید.`);
+      return;
+    }
     const preview=await api('/api/import/preview',json('POST',data));
     if(preview.errors.length) throw Error(preview.errors.join('\n'));
     feedback.textContent=JSON.stringify(preview,null,2);

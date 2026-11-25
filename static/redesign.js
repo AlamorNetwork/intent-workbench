@@ -14,6 +14,7 @@ function refreshDashboard(){const pp=typeof projects==='undefined'?[]:projects;d
 nav.forEach(b=>b.addEventListener('click',()=>{let page=b.dataset.nav;if(page==='home'||page==='projects'){showHome();if(page==='projects')document.querySelector('.home-lower')?.scrollIntoView({behavior:'smooth',block:'start'});return;}showEditorTab(page)}));
 $$('[data-home-action]').forEach(b=>b.addEventListener('click',()=>{let a=b.dataset.homeAction;if(a==='new')document.getElementById('new').click();else if(a==='import')document.getElementById('import-launch').click();else if(a==='templates')document.getElementById('template').click();else document.querySelector('.home-lower')?.scrollIntoView({behavior:'smooth'})}));
 $$('[data-quick]').forEach(b=>b.addEventListener('click',()=>showEditorTab(b.dataset.quick)));
+window.iwbOnProjectTrash=showHome;
 window.iwbOnProjectOpen=()=>{home.hidden=true;header.hidden=false;editor.hidden=false;selectNav(currentTab);refreshDashboard();};
 const oldSwitch=window.switchTab;window.switchTab=function(tab){oldSwitch(tab);selectNav(tab);};
 // Existing listeners capture function declarations directly, so keep their behavior and reflect view state after clicks.

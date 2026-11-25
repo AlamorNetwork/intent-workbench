@@ -133,6 +133,69 @@ class BrowserWorkflow(HTTPTestCase):
                 page.click('#evidence-export')
             self.assertEqual('acceptance-coverage.csv',download.value.suggested_filename)
 
+            page.click('#import-launch')
+            expect(page.locator('#import-heading')).to_have_text('ساخت پروژهٔ جدید از JSON')
+            page.press('#import-dialog','Escape')
+            nav('intent')
+            page.click('#update-open-project')
+            expect(page.locator('#import-heading')).to_have_text('به‌روزرسانی این پروژه با JSON')
+            expect(page.locator('#import-description')).to_contain_text('Verification Project')
+            page.click('#import-text-tab')
+            page.fill('#import-text',json.dumps({'schema_version':'1.6','requirements':[
+                {'id':'REQ-003','title':'Draft update requirement','reference_ids':['REF-001']}
+            ]}))
+            cancel_next.append(True)
+            page.click('#do-import')
+            expect(page.locator('#import-feedback')).to_contain_text('REQ-003')
+            self.assertEqual(2,len(self.request(base)['requirements']))
+            page.click('#do-import')
+            expect(page.locator('#import-dialog')).to_be_hidden()
+            expect(page.locator('#toast')).to_contain_text('پیش‌نویس')
+            self.assertEqual(3,len(self.request(base)['requirements']))
+            self.assertEqual(1,len(self.request('/api/projects')))
+
+            page.evaluate("""() => {
+                const files = new Map([['PROJECT_INTENT.md','previous contract']]);
+                const folder = (path = '') => ({
+                    getDirectoryHandle: async name => folder(path + name + '/'),
+                    getFileHandle: async (name, {create}) => {
+                        const key = path + name;
+                        if (!create && !files.has(key)) throw new DOMException('Missing','NotFoundError');
+                        return {
+                            getFile: async () => new Blob([files.get(key)]),
+                            createWritable: async () => ({
+                                write: async data => files.set(key,data),
+                                close: async () => {}
+                            })
+                        };
+                    }
+                });
+                window.showDirectoryPicker = async () => folder();
+                window.backupPaths = () => [...files.keys()].filter(name => name.startsWith('.intent-workbench-backups/'));
+                window.installedContract = async () => JSON.parse(await new Blob([files.get('PROJECT_CONTEXT.json')]).text());
+            }""")
+            page.click('#install-project')
+            expect(page.locator('#toast')).to_contain_text('نسخه پشتیبان')
+            backups=page.evaluate('window.backupPaths()')
+            self.assertTrue(any('update-v' in path and path.endswith('/PROJECT_INTENT.md') for path in backups))
+            installed=page.evaluate('window.installedContract()')
+            self.assertEqual(3,len(installed['requirements']))
+
+            cancel_next.append(True)
+            page.click('#trash-open-project')
+            self.assertEqual(1,len(self.request('/api/projects')))
+            page.click('#trash-open-project')
+            expect(page.locator('#editor')).to_be_hidden()
+            expect(page.locator('[data-pid]')).to_have_count(0)
+            page.click('#open-trash')
+            expect(page.locator('#trash-list')).to_contain_text('Verification Project')
+            page.locator('#trash-list button').click()
+            expect(page.locator('#trash-status')).to_contain_text('خالی')
+            page.press('#project-trash','Escape')
+            page.locator('[data-pid]').first.click()
+            expect(page.locator('#heading')).to_have_text('Verification Project')
+            self.assertEqual(3,len(self.request(base)['requirements']))
+
             page.set_viewport_size({'width':390,'height':844})
             nav('trace')
             expect(page.locator('.tool-scroll').first).to_be_visible()

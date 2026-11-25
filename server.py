@@ -2,6 +2,7 @@
 """Intent Workbench — local-first project intent compiler, Python stdlib only."""
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from copy import deepcopy
 from urllib.parse import urlparse, parse_qs
 import csv, hmac, html, json, shutil, os, re, uuid, zipfile, io, mimetypes, urllib.request, urllib.error, base64, hashlib
 from threading import RLock
@@ -75,13 +76,15 @@ def safe_header_value(value):
         raise ValueError('Invalid response header value')
     return value
 
-def read_stored_project(folder):
+def read_stored_project(folder, *, include_deleted=False):
     file = safe_child(project_dir(folder.name), 'project.json', r'project\.json')
     if not file.is_file():
         raise FileNotFoundError('Project not found')
     project = json.loads(file.read_text('utf-8'))
     if not isinstance(project, dict) or project.get('id') != folder.name:
         raise ValueError('Stored project ID does not match its directory')
+    if project.get('_deleted_at') and not include_deleted:
+        raise FileNotFoundError('Project not found')
     return project
 
 
@@ -297,7 +300,7 @@ def valid_image_bytes(raw, mime):
         (mime=='image/gif' and raw[:6] in (b'GIF87a',b'GIF89a')))
 
 
-def restore_embedded_images(p,payload, *, preview=False):
+def restore_embedded_images(p,payload, *, preview=False, written=None):
     """Explicit image_data is opt-in: ordinary URL-only JSON never downloads assets."""
     entries=payload.get('references',[])
     total=0
@@ -322,6 +325,8 @@ def restore_embedded_images(p,payload, *, preview=False):
         asset=upload_file(p['id'],name)
         asset.parent.mkdir(parents=True,exist_ok=True)
         with asset.open('xb') as target:
+            if written is not None:
+                written.append(asset)
             target.write(raw)
         p['references'][i]['filename']=name
         p['references'][i]['availability']='attached'
@@ -367,7 +372,7 @@ LINKS = {
 LIMITS = dict(zip(LINKS, (500,100,200,200,500)))
 
 
-def import_preview(payload):
+def import_preview(payload, existing=None):
     if not isinstance(payload, dict):
         raise ValueError('/: expected an object')
     if payload.get('schema_version') not in tuple(f'1.{i}' for i in range(7)):
@@ -418,7 +423,7 @@ def import_preview(payload):
             check_fields(item, template[kind][0], path)
             ident = item.get('id')
             if not isinstance(ident, str) or not ident.strip():
-                if 'id' in item or payload['schema_version'] == '1.6':
+                if 'id' in item or payload['schema_version'] == '1.6' or existing is not None:
                     errors.append(f'{path}/id: expected a nonempty identifier')
             elif ident.strip() in ids[kind]:
                 errors.append(f'{path}/id: duplicate {ident}')
@@ -434,6 +439,8 @@ def import_preview(payload):
         for index, item in enumerate(payload.get(kind, [])):
             for field, target in fields.items():
                 target_ids = normalized[target]
+                if existing is not None:
+                    target_ids = target_ids | {row['id'] for row in existing.get(target,[])}
                 for ident in item.get(field, []):
                     if ident.strip() not in target_ids:
                         errors.append(f'/{kind}/{index}/{field}: unknown ID {ident}')
@@ -490,9 +497,9 @@ def snapshot_metadata(snapshot):
     return {key:value for key,value in snapshot.items() if key != 'contract'}
 
 
-def create_snapshot(project, label, notes):
+def create_snapshot(project, label, notes, *, content=None):
     history = project.setdefault('_snapshots', [])
-    contract = snapshot_content(project)
+    contract = snapshot_content(project) if content is None else content
     body = json.dumps(contract, ensure_ascii=False, sort_keys=True).encode('utf-8')
     if len(history) >= 30 or sum(item['size'] for item in history) + len(body) > 20*1024*1024:
         raise ValueError('Snapshot limit reached. Export a backup and remove a snapshot first.')
@@ -540,6 +547,101 @@ def semantic_diff(before, after):
             changes.append({'type':'modified','path':path,'before':left,'after':right})
     walk(before, after)
     return changes
+
+
+def merge_project_update(project, payload):
+    """Build a draft and a stable preview without writing to disk."""
+    if not isinstance(payload,dict) or not isinstance(payload.get('project',{}),dict):
+        raise ValueError('/project: expected a contract object')
+    identity = dict(payload.get('project',{}))
+    identity.setdefault('title',project['title'])
+    delta = dict(payload,project=identity)
+    validation = import_preview(delta,existing=project)
+    if validation['errors']:
+        return validation, None, None
+    incoming = import_contract(delta)
+    draft = deepcopy(project)
+    warnings = []
+
+    def supplied(record, key):
+        value = record.get(key)
+        if isinstance(value,str):
+            return bool(value.strip()) and value.strip() != 'NOT_SPECIFIED'
+        return bool(value)
+
+    for key in ('title','summary','audience','technical','goals','non_goals','constraints',
+                'design_system','architecture','workflow','conflicts','notes'):
+        original = identity if key in identity else delta
+        if supplied(original,key):
+            if key in ('goals','non_goals','constraints'):
+                combined = dict.fromkeys(lines(draft.get(key,''))+lines(incoming[key]))
+                if len('\n'.join(combined)) > 30000:
+                    raise ValueError(f'/project/{key}: combined text exceeds 30,000 characters')
+                draft[key] = '\n'.join(combined)
+            else:
+                draft[key] = incoming[key]
+
+    def merge_records(kind, destination, raw_rows, normalized, limit):
+        by_id = {row['id']:row for row in destination}
+        incoming_ids = {row['id'] for row in normalized}
+        if len(incoming_ids)!=len(raw_rows) or len(by_id)!=len(destination):
+            raise ValueError(f'/{kind}: ambiguous or excessive records')
+        for raw, row in zip(raw_rows,normalized):
+            target = by_id.get(row['id'])
+            if target is None:
+                candidate = dict(row)
+                if kind=='requirements' and candidate['policy']=='locked':
+                    candidate['policy']='approval'
+                if kind=='journeys':
+                    candidate.update(status='not_run',actual='')
+                if kind=='tasks':
+                    candidate.update(status='todo',evidence='')
+                destination.append(candidate)
+                continue
+            locked = kind=='requirements' and target.get('policy')=='locked'
+            protected = {'status','actual','evidence'} if kind in ('tasks','journeys') else set()
+            for key in row:
+                if key in ('id','filename','availability') or key in protected or not supplied(raw,key):
+                    continue
+                if key in LINKS.get(kind,{}):
+                    target[key] = list(dict.fromkeys(target.get(key,[])+row[key]))
+                elif kind=='requirements' and key=='policy' and row[key]=='locked' and not locked:
+                    warnings.append(f"{row['id']}: locking requires manual approval")
+                elif locked:
+                    if target.get(key)!=row[key]:
+                        warnings.append(f"{row['id']}: locked field /{key} kept")
+                else:
+                    target[key] = row[key]
+        if len(destination)>limit:
+            raise ValueError(f'/{kind}: combined records exceed {limit}')
+
+    for kind,limit in LIMITS.items():
+        merge_records(kind,draft.setdefault(kind,[]),delta.get(kind,[]),incoming[kind],limit)
+    bank = draft.setdefault('bank',{'skills':[],'roles':[],'documents':{}})
+    raw_bank = delta.get('bank',{})
+    for kind,limit in (('skills',60),('roles',200)):
+        merge_records(kind,bank.setdefault(kind,[]),raw_bank.get(kind,[]),incoming['bank'][kind],limit)
+    for name,body in incoming['bank']['documents'].items():
+        if body.strip():
+            bank.setdefault('documents',{})[name] = body
+    reconcile_reference_links(draft)
+
+    embedded = {ref['id']:raw['image_data'] for ref,raw in zip(incoming['references'],delta.get('references',[]))
+                if raw.get('image_data')}
+    images = {'references':[{'image_data':embedded[ref['id']]} if ref['id'] in embedded else {}
+                             for ref in draft['references']]}
+    changes = semantic_diff(snapshot_content(project),snapshot_content(draft))
+    if not changes and not embedded:
+        return {'errors':['No changes to apply'], 'warnings':warnings}, None, None
+    draft['status'] = 'draft'
+    draft['version'] = project['version']+1
+    create_snapshot(draft,f"Before update {draft['version']}","Saved contract before JSON update",
+                    content=snapshot_content(project))
+    digest = hashlib.sha256(json.dumps([project['id'],project['version'],payload],ensure_ascii=False,
+                                       sort_keys=True).encode('utf-8')).hexdigest()
+    return {'errors':[], 'warnings':warnings, 'id':project['id'], 'title':project['title'],
+            'version':draft['version'],'digest':digest,'changes':changes,
+            'embedded_images':sorted(embedded)}, draft, images
 
 
 def snapshot_warnings(project, contract):
@@ -1064,14 +1166,22 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/bank/playbook':
                 f=ROOT/'base_documentation.md'
                 return self.send(200,{'available':f.is_file(),'text':f.read_text('utf-8') if f.is_file() else ''})
-            if path=='/api/projects':
-                ps=[]
+            if path in ('/api/projects','/api/trash'):
+                deleted=path=='/api/trash'
+                projects=[]
                 for folder in DATA.iterdir():
                     try:
-                        p=read_stored_project(folder)
-                        ps.append({k:p.get(k) for k in ['id','title','summary','status','updated_at','version']})
-                    except (ValueError,OSError):pass
-                return self.send(200,sorted(ps,key=lambda p:p.get('updated_at') or '',reverse=True))
+                        project=read_stored_project(folder,include_deleted=deleted)
+                        if bool(project.get('_deleted_at')) != deleted:
+                            continue
+                        item={key:project.get(key) for key in ('id','title','summary','status','updated_at','version')}
+                        if deleted:
+                            item['deleted_at']=project['_deleted_at']
+                        projects.append(item)
+                    except (ValueError,OSError):
+                        continue
+                sort_key='deleted_at' if deleted else 'updated_at'
+                return self.send(200,sorted(projects,key=lambda project:project.get(sort_key) or '',reverse=True))
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})',path)
             if match:return self.send(200,public_project(read_project(match.group(1))))
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})/json',path)
@@ -1123,7 +1233,7 @@ class Handler(BaseHTTPRequestHandler):
                     body=zipped.read(name);total+=len(body)
                     if total>MAX_BODY:raise ValueError('Install package is too large for direct install; use ZIP export')
                     entries.append({'path':name,'data':base64.b64encode(body).decode('ascii')})
-                return self.send(200,{'files':entries,'status':p['status'],'project':p['title']})
+                return self.send(200,{'files':entries,'status':p['status'],'project':p['title'],'version':p['version']})
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})/handoff',path)
             if match:
                 p=read_project(match.group(1))
@@ -1178,6 +1288,25 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.require_local_origin()
             path=urlparse(self.path).path
+            lifecycle=re.fullmatch(r'/api/projects/([a-f0-9]{32})/(trash|restore)',path)
+            if lifecycle:
+                data=self.json_body()
+                if not isinstance(data,dict) or data.get('confirm') is not True:
+                    raise ValueError('Explicit confirmation required')
+                pid,operation=lifecycle.groups()
+                with MUTATIONS:
+                    folder=stored_project_folder(pid)
+                    project=read_stored_project(folder,include_deleted=operation=='restore')
+                    if operation=='trash':
+                        if type(data.get('version')) is not int or data['version']!=project['version']:
+                            return self.send(409,{'error':'Project changed. Reopen it before deleting.'})
+                        project['_deleted_at']=datetime.now(timezone.utc).isoformat()
+                    else:
+                        if not project.get('_deleted_at') or project['_deleted_at']!=data.get('deleted_at'):
+                            return self.send(409,{'error':'Trash entry changed. Refresh the trash list.'})
+                        del project['_deleted_at']
+                    save_project(project,folder)
+                return self.send(200,{'id':pid})
             evidence=re.fullmatch(r'/api/projects/([a-f0-9]{32})/evidence/(preview|apply)',path)
             if evidence:
                 data=self.json_body()
@@ -1228,6 +1357,31 @@ class Handler(BaseHTTPRequestHandler):
                         create_snapshot(p,data.get('label'),data.get('notes',''))
                     save_project(p)
                 return self.send(200,public_project(p))
+            update=re.fullmatch(r'/api/projects/([a-f0-9]{32})/import-update(?:/(preview))?',path)
+            if update:
+                data=self.json_body()
+                if not isinstance(data,dict):
+                    raise ValueError('Expected update options')
+                folder=stored_project_folder(update.group(1))
+                with MUTATIONS:
+                    current=read_stored_project(folder)
+                    preview,draft,images=merge_project_update(current,data.get('contract'))
+                    if update.group(2):
+                        return self.send(200,preview)
+                    if preview['errors']:
+                        raise ValueError('; '.join(preview['errors'][:12]))
+                    if data.get('confirm') is not True or data.get('digest')!=preview['digest']:
+                        raise ValueError('Confirm a current update preview first')
+                    written=[]
+                    try:
+                        restore_embedded_images(draft,images,written=written)
+                        create_snapshot(draft,f"Update {draft['version']}","Imported JSON draft")
+                        save_project(draft,folder)
+                    except (ValueError,OSError):
+                        for asset in written:
+                            asset.unlink(missing_ok=True)
+                        raise
+                return self.send(200,public_project(draft))
             if path=='/api/import/preview':
                 return self.send(200,import_preview(self.json_body()))
             if path=='/api/import':

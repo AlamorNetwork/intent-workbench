@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Preview and merge a JSON update from the open project. Retain the previous version, existing records, protected requirement content and execution evidence.
+- Move projects to Project Trash and restore them with their images and history.
+- Include the draft version in project-folder backup names.
+
 ## 1.0.1
 
 - Harden JSON responses and file writes, and confine the local UI to IPv4 loopback.
