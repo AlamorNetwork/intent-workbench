@@ -3,7 +3,7 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-import csv, hmac, html, json, os, re, uuid, zipfile, io, mimetypes, urllib.request, urllib.error, base64, hashlib
+import csv, hmac, html, json, shutil, os, re, uuid, zipfile, io, mimetypes, urllib.request, urllib.error, base64, hashlib
 from threading import RLock
 from datetime import datetime, timezone
 
@@ -109,7 +109,8 @@ def save_project(p, folder=None):
     d=project_dir(p['id']) if folder is None else project_dir(folder.name)
     d.mkdir(parents=True,exist_ok=True)
     tmp=safe_child(d, 'project.tmp', r'project\.tmp')
-    tmp.write_text(json.dumps(p,ensure_ascii=False,indent=2),encoding='utf-8')
+    with tmp.open('w',encoding='utf-8') as target:
+        json.dump(p,target,ensure_ascii=False,indent=2)
     tmp.replace(safe_child(d, 'project.json', r'project\.json'))
 
 REFERENCE_MODES = {'inspiration', 'structure', 'strict'}
@@ -320,7 +321,8 @@ def restore_embedded_images(p,payload, *, preview=False):
         name=uuid.uuid4().hex+ALLOWED_MIME[mime]
         asset=upload_file(p['id'],name)
         asset.parent.mkdir(parents=True,exist_ok=True)
-        asset.write_bytes(raw)
+        with asset.open('xb') as target:
+            target.write(raw)
         p['references'][i]['filename']=name
         p['references'][i]['availability']='attached'
     return p
@@ -1010,12 +1012,23 @@ Provide `PROJECT_INTENT.md`, `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, and the r
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt,*args): print(f'[{utc()}] {self.address_string()} {fmt%args}')
-    def send(self,status,obj,content_type='application/json',headers=None):
-        if content_type=='application/json':
-            body=html.escape(json.dumps(obj,ensure_ascii=False),quote=False)
-            body=body.replace('&lt;',r'\u003c').replace('&gt;',r'\u003e').replace('&amp;',r'\u0026').encode('utf-8')
-        else:
-            body=obj
+    def send(self,status,obj,*,headers=None):
+        # JSON is a distinct response path; payload characters remain intact after decoding.
+        body=html.escape(json.dumps(obj,ensure_ascii=False),quote=False)
+        payload=body.replace('&lt;',r'\u003c').replace('&gt;',r'\u003e').replace('&amp;',r'\u0026').encode('utf-8')
+        self.send_headers(status,'application/json',len(payload),headers)
+        self.wfile.write(payload)
+
+    def send_bytes(self,body,content_type,headers=None):
+        self.send_headers(200,content_type,len(body),headers)
+        self.wfile.write(body)
+
+    def send_file(self,file,content_type):
+        with file.open('rb') as source:
+            self.send_headers(200,content_type,os.fstat(source.fileno()).st_size)
+            shutil.copyfileobj(source,self.wfile)
+
+    def send_headers(self,status,content_type,length,headers=None):
         content_type = safe_header_value(content_type)
         content_type = content_type.replace('\r', '').replace('\n', '')
         extra_headers = []
@@ -1025,12 +1038,12 @@ class Handler(BaseHTTPRequestHandler):
             v = safe_header_value(v)
             extra_headers.append((k,v.replace('\r', '').replace('\n', '')))
         self.send_response(status);self.send_header('Content-Type',content_type)
-        self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
+        self.send_header('Content-Length',str(length));self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
         if not content_type.startswith('text/html'):
             self.send_header('Content-Security-Policy',"sandbox; default-src 'none'")
         for k,v in extra_headers:self.send_header(k,v)
-        self.end_headers();self.wfile.write(body)
+        self.end_headers()
     def body(self):
         n=int(self.headers.get('Content-Length','0'))
         if n<0 or n>MAX_BODY:raise ValueError('Request must be between 0 and 24 MiB')
@@ -1071,8 +1084,9 @@ class Handler(BaseHTTPRequestHandler):
                 format_name=filters.get('format','json')
                 if format_name=='json':
                     return self.send(200,report)
-                return self.send(200,evidence_export(report,format_name).encode('utf-8'),
-                                 'text/plain; charset=utf-8')
+                return self.send_bytes(evidence_export(report,format_name).encode('utf-8'),
+                                       'text/plain; charset=utf-8',
+                                       {'Content-Disposition':'attachment'})
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})/ai-review',path)
             if match:
                 p=read_project(match.group(1))
@@ -1084,7 +1098,7 @@ class Handler(BaseHTTPRequestHandler):
             if match:
                 p=read_project(match.group(1))
                 if match.group(2)=='backup':
-                    return self.send(200,history_backup(p),'application/zip',
+                    return self.send_bytes(history_backup(p),'application/zip',
                                      {'Content-Disposition':'attachment; filename="intent-history-backup.zip"'})
                 if match.group(2)=='diff':
                     params=parse_qs(urlparse(self.path).query)
@@ -1123,7 +1137,7 @@ class Handler(BaseHTTPRequestHandler):
                 if params.get('version',[str(p['version'])])[0]!=str(p['version']):
                     return self.send(409,{'error':'Project changed. Refresh the handoff preview.'})
                 payload=generate_package(p,profile)
-                return self.send(200,payload,'application/zip',{'Content-Disposition':'attachment; filename="intent-contract.zip"'})
+                return self.send_bytes(payload,'application/zip',{'Content-Disposition':'attachment; filename="intent-contract.zip"'})
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})/images/([a-f0-9]{32}\.(?:png|jpg|webp|gif))',path)
             if match:
                 p=read_project(match.group(1))
@@ -1134,7 +1148,7 @@ class Handler(BaseHTTPRequestHandler):
                 asset=existing_upload(p['id'],filename)
                 if asset is None or not asset.is_file():
                     raise FileNotFoundError('Image not in project')
-                return self.send(200,asset.read_bytes(),IMAGE_MIME.get(asset.suffix,'application/octet-stream'))
+                return self.send_file(asset,IMAGE_MIME.get(asset.suffix,'application/octet-stream'))
             if path=='/api/template':
                 return self.send(200,json.loads((ROOT/'template_v0.9.json').read_text('utf-8')))
             if path=='/api/extraction-kit':
@@ -1151,7 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
             if asset is None:
                 return self.send(404,{'error':'Not found'})
             filename, media_type=asset
-            return self.send(200,(STATIC/filename).read_bytes(),media_type)
+            return self.send_file(STATIC/filename,media_type)
         except (FileNotFoundError,ValueError) as e:self.send(404,{'error':str(e)})
         except Exception as e:self.send(500,{'error':str(e)})
     def require_local_origin(self):
