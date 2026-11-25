@@ -75,10 +75,26 @@ def safe_header_value(value):
         raise ValueError('Invalid response header value')
     return value
 
+def read_stored_project(folder):
+    file = safe_child(project_dir(folder.name), 'project.json', r'project\.json')
+    if not file.is_file():
+        raise FileNotFoundError('Project not found')
+    project = json.loads(file.read_text('utf-8'))
+    if not isinstance(project, dict) or project.get('id') != folder.name:
+        raise ValueError('Stored project ID does not match its directory')
+    return project
+
+
 def read_project(pid):
-    file = safe_child(project_dir(pid), 'project.json', r'project\.json')
-    if not file.is_file(): raise FileNotFoundError('Project not found')
-    return json.loads(file.read_text('utf-8'))
+    if not isinstance(pid, str) or not re.fullmatch(r'[a-f0-9]{32}', pid, flags=re.ASCII):
+        raise ValueError('Invalid project ID')
+    # Match the requested ID against filesystem entries before opening a project.
+    # A captured HTTP path segment never becomes a filesystem path.
+    for folder in DATA.iterdir():
+        if folder.name == pid:
+            return read_stored_project(folder)
+    raise FileNotFoundError('Project not found')
+
 
 def public_project(project):
     return {key:value for key,value in project.items() if not key.startswith('_')}
@@ -1028,7 +1044,7 @@ class Handler(BaseHTTPRequestHandler):
                 ps=[]
                 for folder in DATA.iterdir():
                     try:
-                        p=read_project(folder.name)
+                        p=read_stored_project(folder)
                         ps.append({k:p.get(k) for k in ['id','title','summary','status','updated_at','version']})
                     except (ValueError,OSError):pass
                 return self.send(200,sorted(ps,key=lambda p:p.get('updated_at') or '',reverse=True))
@@ -1215,7 +1231,10 @@ class Handler(BaseHTTPRequestHandler):
                     name=uuid.uuid4().hex+ALLOWED_MIME[mime]
                     d=project_dir(p['id'])/'uploads';d.mkdir(exist_ok=True)
                     upload_file(p['id'],name).write_bytes(payload)
-                    ref={'id':f'REF-{max([int(__import__("re").search(r"\d+$", x.get("id","")).group()) for x in p.get("references",[]) if __import__("re").search(r"\d+$", x.get("id",""))] or [0])+1:03d}','filename':name,'name':self.headers.get('X-File-Name','Reference image')[:150],'notes':'','preserve':'','modify':'','mode':'inspiration','related_requirements':[]}
+                    numbers = [int(suffix.group()) for ref in p.get('references',[])
+                               if (suffix := re.search(r'\d+$', ref.get('id','')))]
+                    next_id = max(numbers, default=0) + 1
+                    ref={'id':f'REF-{next_id:03d}','filename':name,'name':self.headers.get('X-File-Name','Reference image')[:150],'notes':'','preserve':'','modify':'','mode':'inspiration','related_requirements':[]}
                     p.setdefault('references',[]).append(ref);p['version']+=1;save_project(p)
                     return self.send(201,public_project(p))
             match=re.fullmatch(r'/api/projects/([a-f0-9]{32})/(ai-review|audit-ai|analyze)(?:/(preview|decision))?',path)
