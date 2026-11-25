@@ -1549,5 +1549,5 @@ if __name__=='__main__':
     print(f'Intent Workbench ready: http://{HOST}:{PORT}')
     print(f'Local data folder: {DATA}')
     # S5332: this local UI binds to IPv4 loopback and never listens on a network interface.
-    listener = ThreadingHTTPServer(('127.0.0.1',PORT),Handler)  # NOSONAR
-    listener.serve_forever()
+    listener = ThreadingHTTPServer(('127.0.0.1',PORT),Handler)
+    listener.serve_forever()  # NOSONAR — S5332: loopback-only local UI
