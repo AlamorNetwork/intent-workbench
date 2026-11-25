@@ -21,7 +21,7 @@ const oldSwitch=window.switchTab;window.switchTab=function(tab){oldSwitch(tab);s
 $$('.tab').forEach(b=>b.addEventListener('click',()=>selectNav(b.dataset.tab)));
 const list=document.getElementById('project-list');
 new MutationObserver(refreshDashboard).observe(list,{childList:true});
-const search=document.getElementById('global-search');search.addEventListener('keydown',e=>{if(e.key==='Enter'){let q=search.value.trim().toLowerCase();if(!q)return;let item=(typeof projects==='undefined'?[]:projects).find(p=>p.title.toLowerCase().includes(q));if(item){openProject(item.id);return;}if(typeof active!=='undefined'&&active){showEditorTab('requirements');document.getElementById('req-search').value=search.value;renderReqs();}else window.toast?.('پروژه‌ای پیدا نشد.');}});
+const search=document.getElementById('global-search');search.addEventListener('keydown',e=>{if(e.key==='Enter'){let q=search.value.trim().toLowerCase();if(!q)return;let item=(typeof projects==='undefined'?[]:projects).find(p=>p.title.toLowerCase().includes(q));if(item){openProject(item.id).catch(e=>toast(e.message));return;}if(typeof active!=='undefined'&&active){showEditorTab('requirements');document.getElementById('req-search').value=search.value;renderReqs();}else window.toast?.('پروژه‌ای پیدا نشد.');}});
 document.getElementById('mobile-menu').onclick=()=>document.body.classList.toggle('sidebar-open');
 // Initial screen remains the dashboard, even for an empty workspace.
 home.hidden=false;header.hidden=true;empty.hidden=true;editor.hidden=true;selectNav('home');refreshDashboard();
