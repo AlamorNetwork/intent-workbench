@@ -9,3 +9,16 @@
 
 /* v0.7 — Execution Planner */
 .task-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}.task-stat{background:#24252e;border:1px solid #383843;border-radius:12px;padding:12px 16px;display:grid;gap:4px}.task-stat strong{font-size:24px;color:#eee9f5}.task-stat span{font-size:12px;color:#aaa9b7}.task-list{display:grid;gap:13px}.task-card{border:1px solid #3b3946;border-radius:14px;background:#202128;padding:15px}.task-card-head{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:13px}.task-card-head strong{flex:1;font-size:15px}.task-pill{border-radius:24px;padding:4px 10px;font-size:11px;background:#33323e;color:#dad7e4}.task-in_progress{background:#30283c;color:#d7b2ff}.task-blocked{background:#442b30;color:#ffc1c4}.task-done{background:#234036;color:#a5e6c4}.task-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.task-grid label{display:grid;gap:6px;font-size:12px;color:#c4c1ce}.task-grid .wide{grid-column:1/-1}.task-grid input,.task-grid textarea,.task-grid select{min-width:0;width:100%}@media(max-width:700px){.task-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.task-grid{grid-template-columns:1fr}}
+.contract-tool { min-width: 0; }
+.contract-tool .toolbar { flex-wrap: wrap; align-items: end; }
+.contract-tool :focus-visible { outline: 2px solid #bf9afa; outline-offset: 3px; }
+.tool-scroll { overflow: auto; max-width: 100%; }
+.tool-scroll table { border-collapse: collapse; width: 100%; }
+.tool-scroll th, .tool-scroll td { text-align: start; padding: .7rem; border-bottom: 1px solid #41404b; vertical-align: top; }
+.contract-tool pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.contract-tool output { display: block; }
+.contract-tool fieldset { min-inline-size: 0; border: 1px solid #41404b; padding: .75rem; border-radius: .5rem; }
+.contract-tool fieldset label { display: flex; align-items: center; gap: .5rem; margin-block: .3rem; }
+.contract-tool fieldset input[type=checkbox] { width: auto; }
+.contract-tool fieldset input[type=number] { width: 5rem; }
+.contract-tool td { overflow-wrap: anywhere; }

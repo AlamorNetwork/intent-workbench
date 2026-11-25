@@ -1,4 +1,4 @@
-# Public beta release checklist
+# Release checklist
 
 ## Before publishing
 - [ ] Copy README.md and assets/ into repository root; verify images display on GitHub.
@@ -11,10 +11,10 @@
 - [ ] Replace the conceptual dashboard image with real screenshot(s) when available; update caption.
 - [ ] Choose and add a license; inspect licenses of all external catalogs, role text, images, and other bundled material.
 - [ ] Add CONTRIBUTING.md, SECURITY.md (disclosure channel), CHANGELOG.md, and an appropriate CODE_OF_CONDUCT.md as the project grows.
-- [ ] Publish as a beta tag before making stable v1.0 claims.
+- [ ] Check the latest CodeQL analysis for the exact release commit and review any open alerts before tagging.
 
 ## Release positioning
-- Tool, not a harness: no model invocation, runtime orchestration, or live token metering.
+- Workbench supports optional, consent-based contract review. Coding-agent execution and runtime management are outside its scope.
 - Project documents cannot override coding-agent system/developer policies.
-- 32 Python unit tests passed in one packaging environment, not a full cross-platform certification.
+- See the execution plan for tested environments and pending release checks.
 - ~70% token reduction is an unverified user estimate, not a controlled benchmark.

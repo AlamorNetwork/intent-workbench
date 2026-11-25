@@ -4,13 +4,13 @@ import server as s
 class V09Tests(unittest.TestCase):
     def test_kit_template_and_catalog(self):
         root=pathlib.Path(__file__).resolve().parents[1]
-        template=json.loads((root/'template_v0.9.json').read_text())
+        template=json.loads((root/'template_v0.9.json').read_text(encoding='utf-8'))
         self.assertEqual(template['schema_version'],'1.6')
         self.assertIn('journeys',template)
         self.assertIn('screens',template)
         self.assertTrue(s.DEFAULT_SKILLS)
         self.assertTrue(s.role_items())
-        self.assertIn('available_roles',(root/'AI_EXTRACTION_PROMPT.md').read_text())
+        self.assertIn('available_roles',(root/'AI_EXTRACTION_PROMPT.md').read_text(encoding='utf-8'))
     def test_missing_sections_generate_warnings(self):
         data={'schema_version':'1.6','project':{'title':'Example','summary':'Test'},'requirements':[{'id':'REQ-001','title':'UI','text':'Build UI','category':'ui','acceptance':'Visible screen'}]}
         p=s.import_contract(data)
