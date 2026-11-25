@@ -1,4 +1,4 @@
-# Public beta release checklist
+# Release checklist
 
 ## Before publishing
 - [ ] Copy README.md and assets/ into repository root; verify images display on GitHub.
@@ -11,7 +11,7 @@
 - [ ] Replace the conceptual dashboard image with real screenshot(s) when available; update caption.
 - [ ] Choose and add a license; inspect licenses of all external catalogs, role text, images, and other bundled material.
 - [ ] Add CONTRIBUTING.md, SECURITY.md (disclosure channel), CHANGELOG.md, and an appropriate CODE_OF_CONDUCT.md as the project grows.
-- [ ] Publish as a beta tag before making stable v1.0 claims.
+- [ ] Check the latest CodeQL analysis for the exact release commit and review any open alerts before tagging.
 
 ## Release positioning
 - Workbench supports optional, consent-based contract review. Coding-agent execution and runtime management are outside its scope.

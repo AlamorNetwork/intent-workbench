@@ -11,7 +11,7 @@ Turn a project's goals, constraints, visual references, requirements, and accept
 
 <br />
 
-![Status](https://img.shields.io/badge/status-public_beta-A88AFF?style=flat-square)
+![Status](https://img.shields.io/github/v/release/AlamorNetwork/intent-workbench?include_prereleases)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-33343C?style=flat-square&logo=python&logoColor=white)
 ![Interface](https://img.shields.io/badge/UI-charcoal-22232A?style=flat-square)
 ![Architecture](https://img.shields.io/badge/architecture-local--first-494353?style=flat-square)
@@ -62,7 +62,7 @@ Most AI coding workflows mix requirements discovery, product design, architectur
 <div align="center">
   <img src="assets/dashboard-concept.webp" alt="Approved charcoal dashboard design direction" width="94%" />
   <br />
-  <sub>Design-direction concept image — not a verified screenshot of the running app. Replace with real captures before the stable v1.0 release.</sub>
+  <sub>Design concept for the charcoal workspace.</sub>
 </div>
 
 ## 🚀 Quick start

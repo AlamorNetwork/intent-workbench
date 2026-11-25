@@ -14,7 +14,7 @@
 
 <br />
 
-![وضعیت](https://img.shields.io/badge/status-public_beta-A88AFF?style=flat-square)
+![وضعیت](https://img.shields.io/github/v/release/AlamorNetwork/intent-workbench?include_prereleases)
 ![پایتون](https://img.shields.io/badge/Python-3.10%2B-33343C?style=flat-square&logo=python&logoColor=white)
 ![رابط](https://img.shields.io/badge/UI-charcoal-22232A?style=flat-square)
 ![معماری](https://img.shields.io/badge/architecture-local--first-494353?style=flat-square)
@@ -71,7 +71,7 @@
 <div align="center">
   <img src="assets/dashboard-concept.webp" alt="طرح مفهومی مورد تأیید برای داشبورد خاکستری تیره" width="94%" />
   <br />
-  <sub>این تصویر نمایانگر مسیر طراحی است، نه اسکرین‌شات تأییدشده از برنامه در حال اجرا. پیش از انتشار نسخه پایدار 1.0 بهتر است آن را با تصویر واقعی جایگزین کنیم.</sub>
+  <sub>این تصویر طرح مفهومی رابط کاربری است.</sub>
 </div>
 
 <div dir="rtl">
@@ -276,7 +276,7 @@ python -m unittest discover -s tests -v
 
 ## ⚠️ محدودیت‌های فعلی
 
-این نسخه **بتای عمومی** است. تست مرورگر در ویندوز با ارائه‌دهندهٔ آزمایشی اجرا شده است. اجرای CI روی لینوکس و اسکن CodeQL در چک‌لیست انتشار باقی مانده‌اند. خروجی مدل‌ها باید توسط کاربر بازبینی شود و اجرای درست قرارداد توسط ایجنت مقصد تضمین نمی‌شود.
+نسخه‌های منتشرشده در صفحهٔ [انتشارهای GitHub](https://github.com/AlamorNetwork/intent-workbench/releases) فهرست شده‌اند. کیفیت ارزیابی AI به ارائه‌دهنده و مدل انتخابی بستگی دارد. خروجی مدل‌ها باید توسط کاربر بازبینی شود و اجرای درست قرارداد توسط ایجنت مقصد تضمین نمی‌شود.
 
 </div>
 
